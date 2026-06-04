@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>如实 RUSHI · 用户旅程图 / 服务蓝图(APP 版)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f4f1ec;
+    color: #1a1a1a;
+    padding: 32px 24px;
+    line-height: 1.5;
+  }
+
+  .container { max-width: 1860px; margin: 0 auto; }
+
+  header {
+    margin-bottom: 26px;
+    border-bottom: 2px solid #1a1a1a;
+    padding-bottom: 18px;
+  }
+  h1 {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
+  }
+  h1 .en {
+    font-size: 17px;
+    font-weight: 400;
+    color: #6b6b6b;
+    margin-left: 12px;
+  }
+  .subtitle { font-size: 14px; color: #6b6b6b; margin-bottom: 4px; }
+  .product-tagline {
+    font-size: 13px;
+    color: #8a4a3a;
+    font-style: italic;
+    margin-top: 8px;
+  }
+  .design-meta {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #4a4a4a;
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .design-meta b { color: #1a1a1a; }
+
+  .legend {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    font-size: 12px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: #fff;
+    border: 1px solid #d9d4cc;
+    border-radius: 3px;
+  }
+  .legend-swatch { width: 12px; height: 12px; border-radius: 2px; }
+
+  .blueprint {
+    background: #fff;
+    border: 1px solid #1a1a1a;
+    overflow-x: auto;
+    box-shadow: 4px 4px 0 #1a1a1a;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 1720px;
+  }
+  th, td {
+    border: 1px solid #d9d4cc;
+    padding: 13px 11px;
+    vertical-align: top;
+    text-align: left;
+    font-size: 12.5px;
+  }
+
+  thead th.phase-header {
+    color: #f4f1ec;
+    font-weight: 600;
+    font-size: 13.5px;
+    text-align: center;
+    padding: 14px 10px;
+    border: 1px solid #1a1a1a;
+  }
+  thead th.phase-header .phase-num {
+    font-size: 11px;
+    font-weight: 400;
+    color: #c9b8a0;
+    display: block;
+    margin-bottom: 4px;
+  }
+  thead th.phase-header .phase-en {
+    font-size: 10.5px;
+    font-weight: 400;
+    color: #c9b8a0;
+    display: block;
+    margin-top: 3px;
+  }
+  thead th.p0 { background: #46413a; }
+  thead th.p1 { background: #3a3530; }
+  thead th.p2 { background: #2d2a26; }
+  thead th.p3 { background: #1a1a1a; }
+  thead th.p4 { background: #1a1a1a; }
+  thead th.p5 { background: #2d2a26; }
+  thead th.p6 { background: #46413a; }
+
+  thead th.layer-corner {
+    background: #1a1a1a;
+    color: #f4f1ec;
+    width: 160px;
+    min-width: 160px;
+    font-weight: 600;
+    text-align: left;
+    padding: 14px 13px;
+  }
+
+  .loop-row td {
+    border: none;
+    background: transparent;
+    padding: 4px 8px 0;
+  }
+  .loop-banner {
+    background: #f0e6d8;
+    border: 1.5px dashed #8a4a3a;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: #8a4a3a;
+    text-align: center;
+    font-weight: 600;
+  }
+
+  td.layer-label {
+    background: #ede7dc;
+    font-weight: 600;
+    font-size: 13px;
+    width: 160px;
+    min-width: 160px;
+    border-right: 2px solid #1a1a1a;
+  }
+  td.layer-label .layer-en {
+    display: block;
+    font-size: 10.5px;
+    color: #6b6b6b;
+    font-weight: 400;
+    margin-top: 3px;
+    font-style: italic;
+  }
+  td.layer-label .line-note {
+    font-size: 10px;
+    color: #8a4a3a;
+    font-style: italic;
+    margin-top: 5px;
+    display: block;
+    font-weight: 400;
+  }
+
+  tr.row-stage td:not(.layer-label) { background: #fdf6e9; }
+  tr.row-evidence td:not(.layer-label) { background: #fdfbf6; }
+  tr.row-user td:not(.layer-label) { background: #fff9ee; }
+  tr.row-frontstage td:not(.layer-label) { background: #f0f4f0; }
+  tr.row-backstage td:not(.layer-label) { background: #eef0f5; }
+  tr.row-support td:not(.layer-label) { background: #f5eef0; }
+  tr.row-trigger td:not(.layer-label) { background: #f1eef4; }
+  tr.row-return td:not(.layer-label) { background: #f3f0ea; }
+  tr.row-emotion td:not(.layer-label) { background: #fff5f0; }
+
+  .item {
+    margin-bottom: 7px;
+    padding-left: 12px;
+    position: relative;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .item:last-child { margin-bottom: 0; }
+  .item::before {
+    content: "▸";
+    position: absolute;
+    left: 0;
+    color: #8a4a3a;
+    font-size: 10px;
+    top: 2px;
+  }
+
+  .step-tag {
+    display: inline-block;
+    background: #c9a26b;
+    color: #1a1a1a;
+    padding: 1px 6px;
+    border-radius: 2px;
+    font-size: 10px;
+    font-weight: 700;
+    margin-right: 4px;
+    letter-spacing: 0.2px;
+  }
+  .quote { color: #6b6b6b; font-style: italic; font-size: 11px; }
+  .neg { color: #8a4a3a; font-weight: 600; }
+  .em { color: #1a1a1a; font-weight: 600; }
+
+  .stage-goal {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #1a1a1a;
+  }
+  .toyota-box {
+    background: #f0dcbe;
+    border: 1px solid #c9a26b;
+    border-radius: 3px;
+    padding: 7px 8px;
+    margin-bottom: 6px;
+  }
+  .toyota-box:last-child { margin-bottom: 0; }
+  .toyota-box .tb-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #5a4326;
+    margin-bottom: 3px;
+  }
+  .toyota-box .tb-body {
+    font-size: 10.5px;
+    color: #6b5a3e;
+    line-height: 1.45;
+  }
+
+  .escape-note {
+    margin-top: 7px;
+    background: #f8ede4;
+    border: 1px dashed #b58a6a;
+    border-radius: 3px;
+    padding: 6px 8px;
+    font-size: 10.5px;
+    color: #7a5a44;
+    line-height: 1.5;
+  }
+  .escape-note b { color: #5a3a28; }
+
+  .emotion-cell { text-align: center; padding: 16px 8px; }
+  .emotion-icon { font-size: 22px; display: block; margin-bottom: 4px; }
+  .emotion-label { font-size: 10.5px; color: #6b6b6b; }
+
+  tr.row-user td { border-top: 2px solid #c9a26b; }
+  tr.row-frontstage td { border-top: 2px dashed #8a4a3a; }
+  tr.row-backstage td { border-top: 2px solid #1a1a1a; }
+  tr.row-support td { border-top: 2px dashed #5a6b8a; }
+  tr.row-emotion td { border-top: 2px dotted #b08a8a; }
+
+  .notes {
+    margin-top: 30px;
+    padding: 20px 24px;
+    background: #fff;
+    border-left: 4px solid #1a1a1a;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  .notes h3 {
+    font-size: 14px;
+    margin-bottom: 10px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .notes p { margin-bottom: 6px; color: #4a4a4a; }
+  .notes strong { color: #1a1a1a; }
+  .notes em { color: #8a4a3a; font-style: italic; }
+
+  @media (max-width: 900px) {
+    body { padding: 16px 8px; }
+    h1 { font-size: 20px; }
+    h1 .en { display: block; margin-left: 0; margin-top: 4px; }
+  }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .blueprint { box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>如实 · 用户旅程图 / 服务蓝图<span class="en">RUSHI · User Journey & Service Blueprint(APP 版)</span></h1>
+  <p class="subtitle">以丰田问题解决法 8 步为流程骨架 · 覆盖从下载到长期使用的完整旅程</p>
+  <p class="product-tagline">"一个让你无法逃避自己的 AI 执行伴侣 —— 让用户直面真实的自己,发现并解决未完成计划背后真正的问题"</p>
+  <div class="design-meta">
+    <span><b>设计理念:</b>让用户直面真实的自己</span>
+    <span><b>设计目标:</b>发现并解决未完成计划真正的问题</span>
+    <span><b>流程骨架:</b>丰田问题解决法(8 Steps)</span>
+    <span><b>形态:</b>独立 APP</span>
+  </div>
+</header>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-swatch" style="background:#fdf6e9;border:1px solid #c9a26b"></span>大阶段 / 丰田模型</div>
+  <div class="legend-item"><span class="legend-swatch" style="background:#fdfbf6;border:1px solid #d9d4cc"></span>有形证据</div>
+  <div class="legend-item"><span class="legend-swatch" style="background:#fff9ee;border:1px solid #d9d4cc"></span>用户行为</div>
+  <div class="legend-item"><span class="legend-swatch" style="background:#f0f4f0;border:1px solid #d9d4cc"></span>前台行为</div>
+  <div class="legend-item"><span class="legend-swatch" style="background:#eef0f5;border:1px solid #d9d4cc"></span>AI 后台行为</div>
+  <div class="legend-item"><span class="legend-swatch" style="background:#f5eef0;border:1px solid #d9d4cc"></span>支撑流程</div>
+  <div class="legend-item"><span class="legend-swatch" style="background:#f1eef4;border:1px solid #d9d4cc"></span>触发条件</div>
+  <div class="legend-item"><span class="legend-swatch" style="background:#f3f0ea;border:1px solid #d9d4cc"></span>返回内容</div>
+  <div class="legend-item"><span class="legend-swatch" style="background:#fff5f0;border:1px solid #d9d4cc"></span>情绪曲线</div>
+  <div class="legend-item"><span class="step-tag">Step N</span>丰田 8 步</div>
+</div>
+
+<div class="blueprint">
+<table>
+  <thead>
+    <tr>
+      <th class="layer-corner">服务层 / 大阶段 →</th>
+      <th class="phase-header p0"><span class="phase-num">阶段 01</span>触达与筛选<span class="phase-en">Discovery & Onboarding</span></th>
+      <th class="phase-header p1"><span class="phase-num">阶段 02</span>建立用户画像<span class="phase-en">Profiling</span></th>
+      <th class="phase-header p2"><span class="phase-num">阶段 03</span>目标设立<span class="phase-en">Goal Setting</span></th>
+      <th class="phase-header p3"><span class="phase-num">阶段 04</span>进度管理<span class="phase-en">Progress Management</span></th>
+      <th class="phase-header p4"><span class="phase-num">阶段 05</span>行动结果评估<span class="phase-en">Result Review</span></th>
+      <th class="phase-header p5"><span class="phase-num">阶段 06</span>完成激励<span class="phase-en">Reinforcement</span></th>
+      <th class="phase-header p6"><span class="phase-num">阶段 07</span>长期留存<span class="phase-en">Long-term Retention</span></th>
+    </tr>
+  </thead>
+  <tbody>
+
+    <tr class="loop-row">
+      <td></td><td></td><td></td><td></td>
+      <td colspan="2"><div class="loop-banner">↺ 阶段性 loop:进度管理 ⇄ 行动结果评估(Step 4–7 循环,直到真因被解决)</div></td>
+      <td></td>
+    </tr>
+
+    <!-- 大阶段 / 丰田模型 -->
+    <tr class="row-stage">
+      <td class="layer-label">大阶段<br>对应丰田模型<span class="layer-en">Stage / Toyota Model</span></td>
+      <td>
+        <div class="stage-goal">目标:筛出"想被治愈"的人,完成进入</div>
+        <div class="item">把拖延者从"工具坟场"里识别出来</div>
+        <div class="item"><span class="neg">不</span>承诺帮你做任务,只承诺让你看清自己</div>
+      </td>
+      <td>
+        <div class="stage-goal">目标:开场问题初步了解用户</div>
+        <div class="toyota-box">
+          <div class="tb-title">step 0 · 画像建立(如实前置环节)</div>
+          <div class="tb-body">开场对话获取:常拖延的事、过往工具失效原因、对"被质问"的接受度</div>
+        </div>
+      </td>
+      <td>
+        <div class="stage-goal">目标:1)问题分析透彻 2)目标设立清楚</div>
+        <div class="toyota-box">
+          <div class="tb-title">step 1 · 明确问题</div>
+          <div class="tb-body">1)明确期待水平 2)把握现状水平 3)将差距可视化</div>
+        </div>
+        <div class="toyota-box">
+          <div class="tb-title">step 2 · 分析问题</div>
+          <div class="tb-body">1)把问题层次化 2)聚焦关键因素</div>
+        </div>
+        <div class="toyota-box">
+          <div class="tb-title">step 3 · 设定目标</div>
+          <div class="tb-body">1)解决什么 2)到什么程度 3)什么时候</div>
+        </div>
+      </td>
+      <td>
+        <div class="stage-goal">目标:追踪完成情况</div>
+        <div class="toyota-box">
+          <div class="tb-title">step 4 · 把握真因</div>
+          <div class="tb-body">1)找出要因 - 5Why 2)要因分解 - 4M1E</div>
+        </div>
+        <div class="toyota-box">
+          <div class="tb-title">step 6 · 贯彻实施</div>
+          <div class="tb-body">1)执行方案计划 2)横向/纵向沟通 3)做好进度管理</div>
+        </div>
+        <div class="escape-note">
+          <b>关于真因的说明:</b>"逃避 / 自我欺骗"只是 5Why 可能挖到的<b>真因之一</b>。同样可能是:目标定得不合理、缺资源、外部阻碍、技能不足等。如实<b>不预设</b>真因一定是逃避。
+        </div>
+      </td>
+      <td>
+        <div class="stage-goal">目标:剖析完成情况背后原因,制定下一步对策</div>
+        <div class="toyota-box">
+          <div class="tb-title">step 5 · 制定对策</div>
+          <div class="tb-body">1)提出对策方案 2)对比选择最佳</div>
+        </div>
+        <div class="toyota-box">
+          <div class="tb-title">step 7 · 评价成果</div>
+          <div class="tb-body">1)评价实施的结果 2)衡量目标达成度</div>
+        </div>
+      </td>
+      <td>
+        <div class="stage-goal">目标:成果可视化</div>
+        <div class="toyota-box">
+          <div class="tb-title">step 8 · 固定成果</div>
+          <div class="tb-body">1)结果总结和标准化 2)实施横向拓展推广</div>
+        </div>
+      </td>
+      <td>
+        <div class="stage-goal">目标:让用户持续回来,而非工具化沉睡</div>
+        <div class="item">把单次问题解决,沉淀为可复用的个人方法库</div>
+        <div class="item">在用户冷却 / 流失前,用"未结案的真相"召回</div>
+      </td>
+    </tr>
+
+    <!-- 有形证据 -->
+    <tr class="row-evidence">
+      <td class="layer-label">有形证据<span class="layer-en">Physical Evidence</span></td>
+      <td>
+        <div class="item">App Store 页面 / 朋友推荐 / 拖延社区帖子</div>
+        <div class="item">一句话定位 + 首屏心理健康免责声明</div>
+        <div class="item">登录页 / 通知权限请求</div>
+      </td>
+      <td>
+        <div class="item">对话式 onboarding 界面</div>
+        <div class="item">AI 提问气泡 + 用户回答输入框</div>
+        <div class="item">"用户画像卡"(用用户自己的话描述)</div>
+      </td>
+      <td>
+        <div class="item">差距可视化图(期待 vs 现状)</div>
+        <div class="item">问题分层视图 / 目标拆解卡</div>
+        <div class="item">结构化目标卡(做什么·到什么程度·何时)</div>
+      </td>
+      <td>
+        <div class="item">任务列表 / 进度仪表盘</div>
+        <div class="item">每日提醒推送</div>
+        <div class="item">5Why 追问对话流 / 4M1E 分解表</div>
+      </td>
+      <td>
+        <div class="item">真因分析报告</div>
+        <div class="item">对策方案对比视图(2-3 个方案)</div>
+        <div class="item">成果评价卡(目标达成度)</div>
+      </td>
+      <td>
+        <div class="item">成果总结页(可视化)</div>
+        <div class="item">"个人标准对策"卡片</div>
+        <div class="item">阶段复盘报告</div>
+      </td>
+      <td>
+        <div class="item">个人方法库 / 历史问题档案</div>
+        <div class="item">召回通知 / 周期性复盘提醒</div>
+        <div class="item">新目标入口</div>
+      </td>
+    </tr>
+
+    <!-- 用户行为 -->
+    <tr class="row-user">
+      <td class="layer-label">① 用户行为<span class="layer-en">User Action</span><span class="line-note">— 互动线 —</span></td>
+      <td>
+        <div class="item">拖延后陷入自责,主动搜索"治愈拖延"</div>
+        <div class="item">下载 APP、阅读免责声明、授予通知权限</div>
+        <div class="item">自我评估:"我是不是这种人"</div>
+        <div class="item quote">"我推迟那些为了心理健康该做的事…"</div>
+      </td>
+      <td>
+        <div class="item">回答 AI 的开场问题</div>
+        <div class="item">坦白过往用过哪些工具、为什么放弃</div>
+        <div class="item">确认 / 修正 AI 生成的"用户画像"</div>
+      </td>
+      <td>
+        <div class="item">说出一个"一直没做成"的计划</div>
+        <div class="item">回答追问:期待是什么、现在到哪、差多少</div>
+        <div class="item">把大问题拆成小问题,圈出关键的那个</div>
+        <div class="item">设定目标:做到什么程度、什么时候完成</div>
+      </td>
+      <td>
+        <div class="item">收到提醒,回报进度:做了 / 没做 / 部分</div>
+        <div class="item">面对 5Why 连环追问,逐层回答"为什么没推进"</div>
+        <div class="item">配合 4M1E 拆解:是人、方法、还是环境的问题</div>
+        <div class="item">按方案执行,记录实际进展</div>
+      </td>
+      <td>
+        <div class="item">查看 AI 给出的真因分析,确认或反驳</div>
+        <div class="item">在 2-3 个对策方案里对比、做出选择</div>
+        <div class="item">对照目标,看这一轮到底完成了多少</div>
+        <div class="item">决定:进入下一个 loop,还是收尾</div>
+      </td>
+      <td>
+        <div class="item">阅读成果总结,看清"哪条路对自己有效"</div>
+        <div class="item">把有效对策保存为"个人标准做法"</div>
+        <div class="item">完成一次完整的阶段复盘</div>
+      </td>
+      <td>
+        <div class="item">回到 APP 处理下一个未完成计划</div>
+        <div class="item">翻看个人方法库,复用过去的有效对策</div>
+        <div class="item">(冷却后)被召回通知拉回,面对未结案的事</div>
+      </td>
+    </tr>
+
+    <!-- 前台行为 -->
+    <tr class="row-frontstage">
+      <td class="layer-label">② 前台行为<span class="layer-en">Frontstage(APP UI)</span><span class="line-note">— 可见性线 —</span></td>
+      <td>
+        <div class="item">落地页明确告知"这是一个会质问你的产品"</div>
+        <div class="item">弹出心理健康警示,要求用户主动确认</div>
+        <div class="item"><span class="neg">不</span>用增长话术、<span class="neg">不</span>承诺轻松</div>
+      </td>
+      <td>
+        <div class="item">AI 以冷静、不评判的语气逐题提问</div>
+        <div class="item">实时生成并展示"用户画像卡"</div>
+        <div class="item"><span class="neg">不</span>急于给方法、<span class="neg">不</span>下诊断</div>
+      </td>
+      <td>
+        <div class="item"><span class="step-tag">Step 1</span>把"期待 vs 现状"画成差距图</div>
+        <div class="item"><span class="step-tag">Step 2</span>引导用户自己把问题分层、聚焦关键因素</div>
+        <div class="item"><span class="step-tag">Step 3</span>把模糊愿望逼成"可衡量、有期限"的目标卡</div>
+      </td>
+      <td>
+        <div class="item">展示任务进度,到点发出提醒</div>
+        <div class="item"><span class="step-tag">Step 4</span>用 5Why 连环追问,把表面理由逼向真因</div>
+        <div class="item"><span class="step-tag">Step 4</span>提供 4M1E 分解表(人/机/料/法/环)</div>
+        <div class="item"><span class="step-tag">Step 6</span>陪伴执行,记录实际进度,不替用户做决定</div>
+      </td>
+      <td>
+        <div class="item">把 5Why / 4M1E 的结论汇成一份真因分析</div>
+        <div class="item"><span class="step-tag">Step 5</span>列出 2-3 个对策方案,让用户对比选择</div>
+        <div class="item"><span class="step-tag">Step 7</span>用目标卡做标尺,如实展示达成度</div>
+        <div class="item"><span class="neg">不</span>替用户判断对错,只把事实摆出来</div>
+      </td>
+      <td>
+        <div class="item"><span class="step-tag">Step 8</span>把有效对策做成"个人标准做法"卡片</div>
+        <div class="item">生成阶段复盘:这次解决了什么、怎么解决的</div>
+        <div class="item">成果可视化,但<span class="neg">不</span>发徽章、<span class="neg">不</span>排名、<span class="neg">不</span>夸奖</div>
+      </td>
+      <td>
+        <div class="item">个人方法库:可检索的历史问题与对策</div>
+        <div class="item">在合适时机推送召回,引用"未结案的真相"</div>
+        <div class="item">提供新目标入口,平滑进入下一轮 8 步</div>
+      </td>
+    </tr>
+
+    <!-- AI 后台行为 -->
+    <tr class="row-backstage">
+      <td class="layer-label">③ AI 后台行为<span class="layer-en">AI Backstage</span><span class="line-note">— 内部互动线 —</span></td>
+      <td>
+        <div class="item">根据来源渠道判断用户动机强度</div>
+        <div class="item">极端情绪关键词预筛,准备心理健康引导</div>
+      </td>
+      <td>
+        <div class="item">把开场对话解析成结构化用户画像</div>
+        <div class="item">归纳用户的拖延场景与过往工具失效模式</div>
+        <div class="item">为后续 5Why 追问储备个性化上下文</div>
+      </td>
+      <td>
+        <div class="item">把模糊计划解析成"期待 / 现状 / 差距"三元组</div>
+        <div class="item">辅助问题分层,识别关键因素</div>
+        <div class="item">校验目标是否可衡量、有期限,写入任务库</div>
+      </td>
+      <td>
+        <div class="item">调度提醒时机,追踪每个任务的进度状态</div>
+        <div class="item"><span class="em">驱动 5Why 追问树</span>:每轮根据回答生成下一问</div>
+        <div class="item"><span class="em">把要因按 4M1E 归类</span>,定位最可能的真因</div>
+        <div class="item">真因可能是逃避,<span class="neg">也可能</span>是目标失当 / 缺资源 / 外部阻碍</div>
+      </td>
+      <td>
+        <div class="item">综合 5Why + 4M1E 输出真因分析</div>
+        <div class="item"><span class="em">对比、生成对策方案</span>,标注各自代价与适用条件</div>
+        <div class="item"><span class="em">迭代用户画像</span>(根据本轮真实表现更新)</div>
+        <div class="item">衡量目标达成度,判断是否进入下一 loop</div>
+      </td>
+      <td>
+        <div class="item"><span class="em">结果质量评价</span>:这次对策是否真的奏效</div>
+        <div class="item"><span class="em">结果总结和标准化</span>:提炼对该用户有效的做法</div>
+        <div class="item">把成功对策写入个人方法库,打上场景标签</div>
+      </td>
+      <td>
+        <div class="item">监测使用频率,识别冷却 / 流失前兆</div>
+        <div class="item">从历史档案里挑出"未结案的真相"作为召回钩子</div>
+        <div class="item">为新目标匹配方法库里的可复用对策</div>
+      </td>
+    </tr>
+
+    <!-- 支撑流程 -->
+    <tr class="row-support">
+      <td class="layer-label">④ 支撑流程<span class="layer-en">Support Process</span></td>
+      <td>
+        <div class="item">用户洞察来源:拖延社区、心理学研究、竞品流失分析</div>
+        <div class="item">心理健康边界规则库 + 专业资源转介清单</div>
+      </td>
+      <td>
+        <div class="item">画像标签体系(拖延场景 / 工具失效模式)</div>
+        <div class="item">用户数据库:账号、画像、上下文</div>
+      </td>
+      <td>
+        <div class="item">任务库:目标文本 / 期待 / 现状 / 期限 / 状态</div>
+        <div class="item">目标质量校验规则(可衡量、有期限)</div>
+      </td>
+      <td>
+        <div class="item">5Why 追问引擎 + 4M1E 要因分类框架</div>
+        <div class="item">提醒调度系统 / 进度追踪服务</div>
+      </td>
+      <td>
+        <div class="item">对策知识库(方案模板 + 代价标注)</div>
+        <div class="item">达成度衡量指标体系</div>
+      </td>
+      <td>
+        <div class="item">个人方法库存储 + 场景标签索引</div>
+        <div class="item">复盘报告生成模板</div>
+      </td>
+      <td>
+        <div class="item">留存 / 流失模型,召回时机算法</div>
+        <div class="item">历史问题档案库(可检索、可复用)</div>
+      </td>
+    </tr>
+
+    <!-- 触发条件 -->
+    <tr class="row-trigger">
+      <td class="layer-label">⑤ 触发条件<span class="layer-en">Trigger</span></td>
+      <td>
+        <div class="item">用户在拖延后产生自责情绪</div>
+        <div class="item">看到推荐 / 搜索关键词 → 下载</div>
+      </td>
+      <td>
+        <div class="item">首次打开 APP 并通过免责声明</div>
+        <div class="item">用户提交开场问题答案</div>
+      </td>
+      <td>
+        <div class="item">画像建立完成</div>
+        <div class="item">用户说出一个未完成的计划</div>
+      </td>
+      <td>
+        <div class="item">到达提醒时间 / 用户主动回报进度</div>
+        <div class="item">用户回报"没做"或"卡住了" → 触发 5Why</div>
+        <div class="item">要因明确 → 触发 4M1E 分解</div>
+      </td>
+      <td>
+        <div class="item">真因分析完成 → 触发对策制定</div>
+        <div class="item">一个 loop 周期结束 → 触发成果评价</div>
+        <div class="item">达成度不足 → 回到 Step 4,进入下一 loop</div>
+      </td>
+      <td>
+        <div class="item">某个目标被评价为"达成"</div>
+        <div class="item">一个完整问题解决周期收尾</div>
+      </td>
+      <td>
+        <div class="item">用户多日未打开 → 触发召回</div>
+        <div class="item">用户发起新目标 → 进入下一轮 8 步</div>
+        <div class="item">到达周期性复盘节点</div>
+      </td>
+    </tr>
+
+    <!-- 返回内容 -->
+    <tr class="row-return">
+      <td class="layer-label">⑥ 返回内容<span class="layer-en">System Response</span></td>
+      <td>
+        <div class="item">产品定位说明 + 心理健康边界提示</div>
+        <div class="item">(高危情绪)引导至专业资源</div>
+      </td>
+      <td>
+        <div class="item">一张"用户画像卡",用用户自己的话描述</div>
+        <div class="item">一句冷静、不讨好的开场欢迎语</div>
+      </td>
+      <td>
+        <div class="item">差距可视化图 + 问题分层视图</div>
+        <div class="item">结构化目标卡(可衡量、有期限)</div>
+      </td>
+      <td>
+        <div class="item">下一层 5Why 追问 / 4M1E 分解表</div>
+        <div class="item">更新后的进度状态</div>
+      </td>
+      <td>
+        <div class="item">真因分析报告</div>
+        <div class="item">2-3 个对策方案 + 达成度评价卡</div>
+        <div class="item">"进入下一 loop / 收尾"的分岔提示</div>
+      </td>
+      <td>
+        <div class="item">成果可视化总结页</div>
+        <div class="item">"个人标准做法"卡片 + 阶段复盘报告</div>
+      </td>
+      <td>
+        <div class="item">召回消息(引用未结案的真相)</div>
+        <div class="item">个人方法库检索结果 / 新目标入口</div>
+      </td>
+    </tr>
+
+    <!-- 情绪曲线 -->
+    <tr class="row-emotion">
+      <td class="layer-label">⑦ 情绪曲线<span class="layer-en">Emotion Curve</span></td>
+      <td class="emotion-cell"><span class="emotion-icon">🤔</span><span class="emotion-label">好奇 + 自我怀疑</span></td>
+      <td class="emotion-cell"><span class="emotion-icon">😯</span><span class="emotion-label">被看穿的不适<br>+ 一点被理解</span></td>
+      <td class="emotion-cell"><span class="emotion-icon">😬</span><span class="emotion-label">直面差距的紧张<br>(目标变清晰)</span></td>
+      <td class="emotion-cell"><span class="emotion-icon">😣</span><span class="emotion-label">被连环追问的抗拒<br>(关键摩擦点)</span></td>
+      <td class="emotion-cell"><span class="emotion-icon">😳</span><span class="emotion-label">看清真因的震动<br>(产品价值时刻)</span></td>
+      <td class="emotion-cell"><span class="emotion-icon">🙂</span><span class="emotion-label">踏实 / 掌控感<br>(不是被夸的兴奋)</span></td>
+      <td class="emotion-cell"><span class="emotion-icon">😌</span><span class="emotion-label">信任 + 依赖<br>或冷却流失风险</span></td>
+    </tr>
+
+  </tbody>
+</table>
+</div>
+
+<div class="notes">
+  <h3>蓝图阅读说明</h3>
+  <p><strong>横轴 — 七大阶段,覆盖完整用户旅程</strong>:在草稿"建立用户画像→目标设立→进度管理→行动结果评估→完成激励"的基础上,前置补了 <strong>阶段 01 触达与筛选</strong>(下载、免责声明、自我筛选),后置补了 <strong>阶段 07 长期留存</strong>(方法库复用、召回、进入下一轮),让旅程从"下载"一直走到"长期使用"。中间保留 <strong>阶段性 loop</strong>(进度管理 ⇄ 行动结果评估,对应丰田 Step 4–7 循环)。</p>
+  <p><strong>纵轴 — 融合版泳道</strong>:用户行为 / 前台行为 / AI后台行为 / 支撑流程,加上 触发条件 / 返回内容,再补 有形证据 与 情绪曲线 两行。三条分割线沿用标准服务蓝图惯例:互动线、可见性线、内部互动线。</p>
+  <p style="margin-top:10px"><strong>丰田 8 步是唯一骨架</strong>:整个 APP 流程由 <span class="step-tag">Step 0–8</span> 串起 —— 明确问题→分析问题→设定目标→把握真因→制定对策→贯彻实施→评价成果→固定成果。这是流程的主线,也是这版图相比上一版最大的调整。</p>
+  <p><strong>"逃避"被降级为真因的一种可能</strong>:按你的反馈,PRD 里"借口日志、逃避热力图、僵尸任务"等具体功能不再贯穿全程。它们的内核 —— <em>追问、不替你做决定、把事实如实摆出来</em> —— 融进了 Step 4(5Why 把握真因)和各阶段"不替用户判断"的原则里。阶段 04 的橙色说明框明确写出:逃避只是 5Why 可能挖到的真因之一,目标失当、缺资源、外部阻碍同样可能,如实<strong>不预设</strong>真因是逃避。</p>
+</div>
+
+</div>
+</body>
+</html>

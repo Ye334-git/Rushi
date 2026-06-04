@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>如实 RUSHI — v2 Planet Board</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width:100%; height:100%; background:#0a0908; overflow:hidden; -webkit-font-smoothing:antialiased; }
+    #root { width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+    ::-webkit-scrollbar { display:none; } * { scrollbar-width:none; }
+    textarea::placeholder { color:#4A4744; font-style:italic; }
+
+    /* ── Core animations ───────────────────────────────────── */
+    @keyframes rushi-blink   { 0%,100%{opacity:1} 50%{opacity:0} }
+    @keyframes rushi-fadein  { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+
+    /* Plan→Chat: planet drops in from plan-screen position */
+    @keyframes planet-drop {
+      0%   { transform: translateY(-460px) scale(0.38); opacity:0; }
+      18%  { opacity:1; }
+      100% { transform: translateY(0) scale(1); opacity:1; }
+    }
+    /* Chat→Plan: planet rises back out */
+    @keyframes planet-rise {
+      0%   { transform: translateY(0) scale(1); opacity:1; }
+      82%  { opacity:1; }
+      100% { transform: translateY(-460px) scale(0.38); opacity:0; }
+    }
+    /* Chat content fades in after planet settles */
+    @keyframes chat-content-enter {
+      from { opacity:0; transform:translateY(10px); }
+      to   { opacity:1; transform:none; }
+    }
+
+    /* Board→Plan: ripple expands from clicked planet */
+    @keyframes planet-to-plan {
+      0%   { transform:translate(-50%,-50%) scale(1);  opacity:0.28; }
+      70%  { opacity:0.10; }
+      100% { transform:translate(-50%,-50%) scale(38); opacity:0; }
+    }
+
+    /* New planet bursts onto the board */
+    @keyframes planet-appear {
+      0%   { transform:scale(0) rotate(-15deg); opacity:0; }
+      55%  { transform:scale(1.18) rotate(4deg); opacity:1; }
+      75%  { transform:scale(0.94) rotate(-2deg); }
+      100% { transform:scale(1) rotate(0deg); opacity:1; }
+    }
+
+    /* Orbital float — one per planet, distinct rhythm */
+    @keyframes orbit-float-1 {
+      0%,100% { transform:translate(0,0); }
+      28%     { transform:translate(7px,-9px); }
+      62%     { transform:translate(-5px,8px); }
+    }
+    @keyframes orbit-float-2 {
+      0%,100% { transform:translate(0,0); }
+      33%     { transform:translate(-8px,7px); }
+      68%     { transform:translate(6px,-10px); }
+    }
+    @keyframes orbit-float-3 {
+      0%,100% { transform:translate(0,0); }
+      24%     { transform:translate(9px,6px); }
+      58%     { transform:translate(-7px,-8px); }
+    }
+    @keyframes orbit-float-4 {
+      0%,100% { transform:translate(0,0); }
+      42%     { transform:translate(-6px,-8px); }
+      76%     { transform:translate(8px,7px); }
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="rushi-screens-v2.jsx"></script>
+
+<script type="text/babel">
+  // ── Slide transition ───────────────────────────────────────
+  // fade=true → opacity only (no translateY); used for plan↔chat
+  // so the planet animation carries the visual weight
+  function Slide({ active, children, fade = false }) {
+    return (
+      <div style={{
+        position:'absolute', inset:0,
+        opacity: active ? 1 : 0,
+        transform: (!fade && !active) ? 'translateY(22px)' : 'none',
+        pointerEvents: active ? 'auto' : 'none',
+        transition: 'opacity 280ms cubic-bezier(0.22,1,0.36,1), transform 280ms cubic-bezier(0.22,1,0.36,1)',
+        willChange: 'opacity, transform',
+      }}>
+        {children}
+      </div>
+    );
+  }
+
+  // ── Viewport scale ─────────────────────────────────────────
+  function useScale(h, w, pad = 56) {
+    const [s, setS] = React.useState(1);
+    React.useEffect(() => {
+      const calc = () => setS(Math.min(1,
+        (window.innerHeight - pad) / h,
+        (window.innerWidth  - pad) / w
+      ));
+      calc();
+      window.addEventListener('resize', calc);
+      return () => window.removeEventListener('resize', calc);
+    }, [h, w, pad]);
+    return s;
+  }
+
+  // ── Tweaks defaults ────────────────────────────────────────
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "accent": "#C4783A",
+    "density": "comfortable"
+  }/*EDITMODE-END*/;
+
+  // ── App ───────────────────────────────────────────────────
+  function App() {
+    const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+    const ac = t.accent;
+
+    // screen: 'start' | 'onboard' | 'board' | 'plan' | 'chat' | 'generalChat' | 'settle' | 'addGoal'
+    const [screen,      setScreen]      = React.useState('board');
+    const [activeTab,   setActiveTab]   = React.useState('board');
+    const [selectedGoal, setGoal]       = React.useState(1);
+    const [chatKey,     setChatKey]     = React.useState(0);
+    const [genChatKey,  setGenChatKey]  = React.useState(0);
+    const [addGoalKey,  setAddGoalKey]  = React.useState(0);
+    const [extraGoals,  setExtraGoals]  = React.useState([]);
+    // Board→Plan zoom overlay
+    const [boardTrans,  setBoardTrans]  = React.useState({ active:false, x:0, y:0, color:'' });
+    const scale = useScale(852, 393, 56);
+
+    const go = (s) => setScreen(s);
+
+    // Tab bar navigation
+    const handleTabChange = (tab) => {
+      setActiveTab(tab);
+      if (tab === 'board')  go('board');
+      if (tab === 'chat')   { setGenChatKey(k => k+1); go('generalChat'); }
+      if (tab === 'settle') go('settle');
+    };
+
+    // Planet clicked on board → zoom ripple then plan screen
+    const handleSelectGoal = (id, bx, by) => {
+      const goal  = GOALS2.find(g => g.id === id);
+      const color = PALS2[goal.pal][3];
+      setGoal(id);
+      setBoardTrans({ active:true, x:bx, y:by, color });
+      setTimeout(() => {
+        go('plan');
+        setBoardTrans({ active:false, x:0, y:0, color:'' });
+      }, 390);
+    };
+
+    // "添加目标" button on board
+    const handleAddGoal = () => {
+      setAddGoalKey(k => k + 1);
+      go('addGoal');
+    };
+
+    // Goal creation confirmed → new planet bursts onto board
+    const handleGoalCreated = (goalData) => {
+      const pos   = EXTRA_POSITIONS[extraGoals.length % EXTRA_POSITIONS.length];
+      const newId = 10 + extraGoals.length;
+      const planet = {
+        id: newId,
+        name: goalData.name,
+        phase: goalData.phase,
+        progress: 0,
+        pal: goalData.pal,
+        ...pos,
+        isNew: true,
+      };
+      setExtraGoals(prev => [...prev, planet]);
+      go('board');
+      setActiveTab('board');
+      // Settle animation flag after burst completes
+      setTimeout(() => {
+        setExtraGoals(prev =>
+          prev.map(g => g.id === newId ? { ...g, isNew:false } : g)
+        );
+      }, 1100);
+    };
+
+    // "开始今日对话" from plan screen
+    const handleGoalChat = () => {
+      setChatKey(k => k+1);
+      go('chat');
+    };
+
+    // After insight → settle
+    const handleSettle = () => {
+      go('settle');
+      setActiveTab('settle');
+    };
+
+    return (
+      <React.Fragment>
+        <div style={{
+          position:'relative',
+          transform:`scale(${scale})`,
+          transformOrigin:'center center',
+        }}>
+          <IOSDevice dark={true} width={393} height={852}>
+            <div style={{ height:'100%', background:TH2.bg0,
+              position:'relative', overflow:'hidden' }}>
+
+              {/* ── Board→Plan zoom ripple overlay ── */}
+              {boardTrans.active && (
+                <div style={{ position:'absolute', inset:0, zIndex:60,
+                  overflow:'hidden', pointerEvents:'none' }}>
+                  <div style={{
+                    position:'absolute',
+                    left:`${boardTrans.x}px`, top:`${boardTrans.y}px`,
+                    width:20, height:20, borderRadius:'50%',
+                    background:boardTrans.color,
+                    animation:'planet-to-plan 400ms cubic-bezier(0.22,1,0.36,1) forwards',
+                  }} />
+                </div>
+              )}
+
+              {/* ── Screens ── */}
+              <Slide active={screen==='start'}>
+                <StartScreenV2
+                  onEnter={()=>go('board')}
+                  onNewUser={()=>go('onboard')}
+                  accent={ac}
+                />
+              </Slide>
+
+              <Slide active={screen==='onboard'}>
+                <OnboardingScreenV2
+                  onDone={()=>{ go('board'); setActiveTab('board'); }}
+                  accent={ac}
+                />
+              </Slide>
+
+              <Slide active={screen==='board'}>
+                <PlanetBoardScreen
+                  onSelectGoal={handleSelectGoal}
+                  onAddGoal={handleAddGoal}
+                  extraGoals={extraGoals}
+                  activeTab={activeTab}
+                  onTabChange={handleTabChange}
+                  accent={ac}
+                />
+              </Slide>
+
+              {/* Plan: fade-only — planet ripple already handled the visual */}
+              <Slide active={screen==='plan'} fade={true}>
+                <GoalPlanScreen
+                  goalId={selectedGoal}
+                  onChat={handleGoalChat}
+                  onBack={()=>go('board')}
+                  accent={ac}
+                />
+              </Slide>
+
+              {/* Goal chat: fade-only — planet-drop/rise carry the transition */}
+              <Slide active={screen==='chat'} fade={true}>
+                <ChatScreenV2
+                  key={chatKey}
+                  goalId={selectedGoal}
+                  onSettle={handleSettle}
+                  onBack={()=>go('plan')}
+                  accent={ac}
+                />
+              </Slide>
+
+              {/* General chat: from tab bar 对话 */}
+              <Slide active={screen==='generalChat'}>
+                <GeneralChatScreen
+                  key={genChatKey}
+                  onSettle={handleSettle}
+                  activeTab={activeTab}
+                  onTabChange={handleTabChange}
+                  accent={ac}
+                />
+              </Slide>
+
+              <Slide active={screen==='settle'}>
+                <SettlementScreen
+                  activeTab={activeTab}
+                  onTabChange={handleTabChange}
+                  accent={ac}
+                />
+              </Slide>
+
+              {/* Add Goal: AI-guided conversation, full modal */}
+              <Slide active={screen==='addGoal'}>
+                <AddGoalScreen
+                  key={addGoalKey}
+                  onCreated={handleGoalCreated}
+                  onClose={() => { go('board'); setActiveTab('board'); }}
+                  accent={ac}
+                />
+              </Slide>
+            </div>
+          </IOSDevice>
+
+          {/* Screen nav dots */}
+          <div style={{
+            position:'absolute', bottom:-32, left:'50%',
+            transform:'translateX(-50%)',
+            display:'flex', gap:6, alignItems:'center',
+          }}>
+            {[
+              ['start','开始'], ['onboard','引导'], ['board','目标板'],
+              ['plan','计划'],  ['chat','对话'],    ['generalChat','全局对话'],
+              ['settle','沉淀'], ['addGoal','新建目标'],
+            ].map(([s, label]) => (
+              <button key={s} onClick={() => {
+                if (s==='chat')        setChatKey(k=>k+1);
+                if (s==='generalChat') setGenChatKey(k=>k+1);
+                if (s==='addGoal')     setAddGoalKey(k=>k+1);
+                go(s);
+              }} title={label} style={{
+                width: screen===s ? 20 : 6, height:6, borderRadius:3,
+                border:'none', cursor:'pointer', padding:0,
+                background: screen===s ? ac : 'rgba(255,255,255,0.15)',
+                transition:'all 280ms cubic-bezier(0.22,1,0.36,1)',
+              }} />
+            ))}
+          </div>
+        </div>
+
+        {/* Tweaks panel */}
+        <TweaksPanel>
+          <TweakSection label="强调色" />
+          <TweakColor label="Accent" value={t.accent}
+            options={['#C4783A','#6B9E78','#4A82C4','#9B6AC4']}
+            onChange={v => setTweak('accent', v)} />
+          <TweakSection label="布局" />
+          <TweakRadio label="密度" value={t.density}
+            options={['compact','comfortable']} labels={['紧凑','舒适']}
+            onChange={v => setTweak('density', v)} />
+        </TweaksPanel>
+      </React.Fragment>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
