@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, Pressable, Alert, LayoutChangeEvent } from 'react-native';
+import { View, Text, Pressable, Alert, LayoutChangeEvent, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Line } from 'react-native-svg';
@@ -258,7 +258,8 @@ export default function BoardScreen() {
           style={{
             flexDirection: 'row', alignItems: 'center', gap: 8,
             backgroundColor: 'transparent', borderWidth: 1, borderColor: TH2.bdr,
-            borderStyle: 'dashed', borderRadius: 12, paddingVertical: 10, paddingHorizontal: 16,
+            borderStyle: Platform.OS === 'ios' ? 'dashed' : (('dotted' as any)),
+            borderRadius: 12, paddingVertical: 10, paddingHorizontal: 16,
           }}
         >
           <Svg width={12} height={12} viewBox="0 0 12 12" fill="none">
@@ -274,7 +275,7 @@ export default function BoardScreen() {
             flexDirection: 'row', alignItems: 'center', gap: 8,
             backgroundColor: editMode ? 'rgba(196,120,58,0.12)' : 'transparent',
             borderWidth: 1, borderColor: editMode ? TH2.acc : TH2.bdr,
-            borderStyle: editMode ? 'solid' : 'dashed',
+            borderStyle: editMode ? 'solid' : Platform.OS === 'ios' ? 'dashed' : (('dotted' as any)),
             borderRadius: 12, paddingVertical: 10, paddingHorizontal: 16,
           }}
         >
