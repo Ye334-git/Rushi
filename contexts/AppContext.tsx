@@ -3,8 +3,11 @@ import React, {
   useContext,
   useState,
   useCallback,
+  useEffect,
+  useRef,
 } from 'react';
 import type { Goal, SettleCard, TimelineMonth, ChatMessage } from '../types/models';
+import { loadAppState, saveAppState } from '../services/storage';
 
 // ─── 初始数据 ───
 
@@ -60,27 +63,6 @@ export const TIMELINE_DATA: TimelineMonth[] = [
   },
 ];
 
-export const CHAT_Q = [
-  '上次你说卡在"开始"。\n\n今天，是什么让你停下来的？',
-  '你注意到那个停顿的感觉了。\n\n它像什么？',
-  '每次这样停下来时，\n你通常告诉自己什么？',
-];
-
-export const GENERAL_Q = [
-  '最近，\n\n整体感觉怎么样？',
-  '在所有进行中的目标里，\n\n哪一个最让你有感觉？',
-  '我注意到你在时间分配上已经走了很远。\n\n是什么让你今天还在这里？',
-];
-
-export const ADD_GOAL_QS = [
-  '说说看——\n\n什么让你想到这件事的？',
-  '嗯。\n\n现在是什么状态？你觉得，差距在哪里？',
-  '这种感觉，\n\n在什么时候最明显？',
-  '大概多久出现一次？\n\n每次会持续多久？',
-  '如果三个月后，这件事有了改变——\n\n你会看到什么不同？',
-  '你怎么知道自己在进步？\n\n有没有一个可以感受到的信号？',
-];
-
 export const OB_STEPS = [
   { q: '你想关注的方向？', opts: ['工作效率', '情绪管理', '人际边界', '创造力', '自我认知', '习惯养成', '拖延执行', '压力应对'] },
   { q: '你通常怎么描述卡点？', opts: ['说不清楚', '知道但做不到', '反复放弃', '想太多', '太分散', '拒绝开始'] },
@@ -95,9 +77,6 @@ export const PLAN_ITEMS = [
 ];
 
 
-export const ADD_PHASE_MAP = [0, 0, 1, 1, 2, 2];
-export const ADD_PHASE_LABELS = ['说清楚', '找规律', '定方向'];
-
 // ─── Context 类型 ───
 
 interface AppContextType {
@@ -106,6 +85,7 @@ interface AppContextType {
   addExtraGoal: (g: Goal) => void;
   deleteGoal: (id: number) => void;
   clearNewFlag: (id: number) => void;
+  updateGoalProgress: (id: number, progress: number) => void;
   accent: string;
   setAccent: (c: string) => void;
   onboardingComplete: boolean;
@@ -122,8 +102,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [extraGoals, setExtraGoals] = useState<Goal[]>([]);
   const [accent, setAccent] = useState('#C4783A');
   const [onboardingComplete, setOnboardingComplete] = useState(false);
-  const [settleCards, setSettleCards] = useState<SettleCard[]>([]);
-  const [timelineData, setTimelineData] = useState<TimelineMonth[]>([]);
+  const [settleCards, setSettleCards] = useState<SettleCard[]>(SETTLE_CARDS);
+  const [timelineData, setTimelineData] = useState<TimelineMonth[]>(TIMELINE_DATA);
+  const loaded = useRef(false);
+
+  // 启动时从 AsyncStorage 恢复状态
+  useEffect(() => {
+    (async () => {
+      const saved = await loadAppState();
+      if (saved) {
+        setGoals(saved.goals);
+        setExtraGoals(saved.extraGoals);
+        setSettleCards(saved.settleCards);
+        setTimelineData(saved.timelineData);
+        setOnboardingComplete(saved.onboardingComplete);
+      }
+      loaded.current = true;
+    })();
+  }, []);
+
+  // 状态变化时自动持久化（跳过首次加载前的空保存）
+  useEffect(() => {
+    if (!loaded.current) return;
+    saveAppState({ goals, extraGoals, settleCards, timelineData, onboardingComplete });
+  }, [goals, extraGoals, settleCards, timelineData, onboardingComplete]);
 
   const addExtraGoal = useCallback((g: Goal) => {
     setExtraGoals(prev => [...prev, { ...g, isNew: true }]);
@@ -153,6 +155,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const updateGoalProgress = useCallback((id: number, progress: number) => {
+    setGoals(prev => prev.map(g => g.id === id ? { ...g, progress: Math.min(100, Math.max(0, progress)) } : g));
+    setExtraGoals(prev => prev.map(g => g.id === id ? { ...g, progress: Math.min(100, Math.max(0, progress)) } : g));
+  }, []);
+
   const deleteGoal = useCallback((id: number) => {
     setGoals(prev => prev.filter(g => g.id !== id));
     setExtraGoals(prev => prev.filter(g => g.id !== id));
@@ -160,7 +167,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      goals, extraGoals, addExtraGoal, deleteGoal, clearNewFlag,
+      goals, extraGoals, addExtraGoal, deleteGoal, clearNewFlag, updateGoalProgress,
       accent, setAccent,
       onboardingComplete, completeOnboarding,
       settleCards, timelineData, addSettleCard,

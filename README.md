@@ -13,16 +13,16 @@ AI 反思陪伴 App — 通过苏格拉底式对话，帮你面对拖延、发�
 ## 快速开始
 
 ```bash
-# 1. 安装依赖
+# 1. 配置 API Key
+cp .env.example .env
+# 编辑 .env，填入你的 DeepSeek API Key
+
+# 2. 安装 & 启动
 npm install
-
-# 2. 启动开发服务器
 npx expo start
-
-# 3. 在手机上预览
-# - iOS: 用相机扫描终端二维码，或按 i 打开模拟器
-# - Android: 用 Expo Go 扫描二维码，或按 a 打开模拟器
 ```
+
+手机安装 Expo Go 扫码即可预览。
 
 ## 项目结构
 

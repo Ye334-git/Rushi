@@ -18,6 +18,8 @@ export interface Goal {
   sz: number;
   /** 是否为新创建的（播放爆裂动画） */
   isNew?: boolean;
+  /** AI 生成的总结 */
+  summary?: string;
 }
 
 // ─── 对话消息 ───

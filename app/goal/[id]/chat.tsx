@@ -1,59 +1,90 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  Pressable,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  Dimensions,
+  View, Text, TextInput, Pressable, ScrollView,
+  KeyboardAvoidingView, Platform, Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withSequence,
-  Easing,
+  useSharedValue, useAnimatedStyle, withTiming,
+  withSequence, Easing,
 } from 'react-native-reanimated';
 import { TH2 } from '../../../constants/Colors';
 import { PlanetOrb } from '../../../components/PlanetOrb';
 import { Typewriter } from '../../../components/Typewriter';
 import { ThinkingDots } from '../../../components/ThinkingDots';
-import { useApp, GOALS2, CHAT_Q } from '../../../contexts/AppContext';
+import { useApp, GOALS2 } from '../../../contexts/AppContext';
+import { sendChatMessage } from '../../../services/chat';
+import { buildGoalPrompt } from '../../../services/prompts';
+import { loadConversation, saveConversation, clearConversation } from '../../../services/storage';
+import type { ConversationKey } from '../../../services/storage';
+import { CARD_REGISTRY, extractMarkerValue, stripMarker } from '../../../services/cards';
 
 const PSIZE = 360;
 const PVISIBLE = 130;
 const POFFSET = -(PSIZE - PVISIBLE);
-const INPUT_GAP = PVISIBLE + 24; // input bar sits above planet
+const INPUT_GAP = PVISIBLE + 24;
 const { height: SCREEN_H } = Dimensions.get('window');
 
-interface Msg { role: 'ai' | 'user'; text: string; id?: number; }
+interface Msg { role: 'ai' | 'user'; text: string; }
 
+// ============================================================
+// ============================================================
+// 目标打卡对话 — 卡片配置见 services/cards.ts → goal-checkin
+//   触发: 用户点"结束" → AI 总结+[PROGRESS:XX] → 进度调整+保存到沉淀库
+// ============================================================
 export default function GoalChatScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { accent, extraGoals } = useApp();
+  const { accent, extraGoals, addSettleCard, updateGoalProgress } = useApp();
   const ac = accent;
   const insets = useSafeAreaInsets();
 
   const allGoals = [...GOALS2, ...extraGoals];
   const goal = allGoals.find(g => g.id === Number(id)) || GOALS2[0];
+  const convKey: ConversationKey = `goal-${goal.id}`;
+  const systemPrompt = buildGoalPrompt({
+    name: goal.name,
+    phase: goal.phase,
+    progress: goal.progress,
+  });
 
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [phase, setPhase] = useState('start');
   const [input, setInput] = useState('');
-  const [qIdx, setQIdx] = useState(0);
+  const [error, setError] = useState('');
+  const [ended, setEnded] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [suggestedProgress, setSuggestedProgress] = useState<number | null>(null);
+  const cardConfig = CARD_REGISTRY['goal-checkin'];
+  const progressPattern = cardConfig.trigger.markerRegex!;
   const scrollRef = useRef<ScrollView>(null);
 
-  // ── Planet drop: starts from ~upper third (board area), grows to bottom ──
+  // Planet drop animation
   const planetTY = useSharedValue(-SCREEN_H * 0.55);
   const planetScl = useSharedValue(0.42);
   const planetOp = useSharedValue(0);
   const contentOp = useSharedValue(0);
+
+  const startNewConversation = async () => {
+    await clearConversation(convKey);
+    setMsgs([]);
+    setEnded(false);
+    setSaved(false);
+    setError('');
+    setPhase('thinking');
+    try {
+      const text = await sendChatMessage([], systemPrompt);
+      const firstMsg: Msg[] = [{ role: 'ai', text }];
+      setMsgs(firstMsg);
+      await saveConversation(convKey, firstMsg);
+      setPhase('typing');
+    } catch (e: any) {
+      setError(e.message || '连接失败');
+      setPhase('waiting');
+    }
+  };
 
   useEffect(() => {
     planetTY.value = withTiming(0, { duration: 720, easing: Easing.bezier(0.22, 1, 0.36, 1) });
@@ -64,8 +95,15 @@ export default function GoalChatScreen() {
     planetOp.value = withTiming(1, { duration: 400 });
     const t1 = setTimeout(() => { contentOp.value = withTiming(1, { duration: 340 }); }, 460);
     const t2 = setTimeout(() => {
-      setMsgs([{ role: 'ai', text: CHAT_Q[0], id: 0 }]);
-      setPhase('typing0');
+      (async () => {
+        const saved = await loadConversation(convKey);
+        if (saved && saved.length > 0) {
+          setMsgs(saved as Msg[]);
+          setPhase('waiting');
+        } else {
+          await startNewConversation();
+        }
+      })();
     }, 720);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
@@ -73,6 +111,12 @@ export default function GoalChatScreen() {
   useEffect(() => {
     scrollRef.current?.scrollToEnd({ animated: true });
   }, [msgs, phase]);
+
+  const buildApiMessages = (msgsArr: Msg[]) =>
+    msgsArr.map(m => ({
+      role: (m.role === 'ai' ? 'assistant' : 'user') as 'assistant' | 'user',
+      content: m.text,
+    }));
 
   const planetAnim = useAnimatedStyle(() => ({
     transform: [{ translateY: planetTY.value }, { scale: planetScl.value }],
@@ -89,66 +133,122 @@ export default function GoalChatScreen() {
     setTimeout(() => router.back(), 540);
   }, []);
 
-  const handleAIDone = (idx: number) => {
-    if (idx < CHAT_Q.length - 1) setPhase(`wait${idx}`);
-    else setPhase('done');
+  const handleAIDone = async () => {
+    // 检测 AI 回复中的进度标记 → 配置来自 services/cards.ts goal-checkin
+    const lastMsg = msgs[msgs.length - 1];
+    if (lastMsg && lastMsg.role === 'ai') {
+      const val = extractMarkerValue(lastMsg.text, progressPattern);
+      if (val !== null) {
+        setSuggestedProgress(val);
+        setMsgs(prev => prev.map((m, i) =>
+          i === prev.length - 1 ? { ...m, text: stripMarker(m.text, progressPattern) } : m,
+        ));
+      }
+    }
+    setPhase(ended ? 'done' : 'waiting');
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim()) return;
-    const txt = input; setInput('');
-    const nextQ = qIdx + 1;
-    setMsgs(prev => [...prev, { role: 'user', text: txt }]);
+    const userText = input;
+    setInput('');
+    const newMsgs: Msg[] = [...msgs, { role: 'user', text: userText }];
+    setMsgs(newMsgs);
+    await saveConversation(convKey, newMsgs);
     setPhase('thinking');
-    setTimeout(() => {
-      if (nextQ < CHAT_Q.length) {
-        setMsgs(prev => [...prev, { role: 'ai', text: CHAT_Q[nextQ], id: nextQ }]);
-        setPhase(`typing${nextQ}`); setQIdx(nextQ);
-      } else { setPhase('done'); }
-    }, 1200);
+    setError('');
+
+    try {
+      const text = await sendChatMessage(buildApiMessages(newMsgs), systemPrompt);
+      const full: Msg[] = [...newMsgs, { role: 'ai', text }];
+      setMsgs(full);
+      await saveConversation(convKey, full);
+      setPhase('typing');
+    } catch (e: any) {
+      setError(e.message || '连接失败');
+      setPhase('waiting');
+    }
   };
 
-  const isTyping = phase.startsWith('typing');
-  const isWaiting = phase.startsWith('wait');
-  const showInput = isWaiting || phase === 'done';
+  const handleEnd = async () => {
+    setPhase('thinking');
+    setEnded(true);
+    try {
+      const summary = await sendChatMessage(
+        buildApiMessages(msgs),
+        cardConfig.synthesisPrompt,
+      );
+      const pm = extractMarkerValue(summary, progressPattern);
+      const cleanSummary = pm !== null ? stripMarker(summary, progressPattern) : summary;
+      if (pm !== null) setSuggestedProgress(pm);
+      const full: Msg[] = [...msgs, { role: 'ai', text: cleanSummary }];
+      setMsgs(full);
+      await saveConversation(convKey, full);
+      setPhase('typing');
+    } catch {
+      setPhase('done');
+    }
+  };
+
+  const isTyping = phase === 'typing';
+  const showInput = phase === 'waiting';
+  const hasSaved = msgs.length > 0;
+  const lastAIMsg = hasSaved && msgs[msgs.length - 1].role === 'ai'
+    ? msgs[msgs.length - 1].text
+    : '';
 
   return (
     <View style={{ flex: 1, backgroundColor: TH2.bg0 }}>
-      {/* ── Keyboard-aware content: nav + messages + input ── */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={-insets.bottom}
       >
-        {/* Nav */}
         <View style={{
           paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 12,
           flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <Pressable onPress={handleBack} hitSlop={12} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 }}>
             <Svg width={7} height={12} viewBox="0 0 7 12" fill="none">
-              <Path d="M6 1L1 6l5 5" stroke={TH2.t1} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+              <Path d="M6 1L1 6l6 6" stroke={TH2.t1} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
             </Svg>
-            <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 13, color: TH2.t1 }}>目标计划</Text>
+            <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 13, color: TH2.t1 }}>{goal.name}</Text>
           </Pressable>
-          {phase === 'start' || isTyping ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: TH2.accSoft }}>
-              <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: ac }} />
-              <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 9, color: ac, letterSpacing: 1 }}>思考中</Text>
-            </View>
-          ) : (
-            <PlanetOrb goal={goal} size={28} mini />
-          )}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {hasSaved && (
+              <Pressable
+                onPress={startNewConversation}
+                style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: TH2.bdr }}
+              >
+                <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 11, color: TH2.t1 }}>新对话</Text>
+              </Pressable>
+            )}
+            {phase !== 'done' && !ended && msgs.length >= 2 && (
+              <Pressable
+                onPress={handleEnd}
+                style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: TH2.bdr }}
+              >
+                <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 11, color: TH2.t1 }}>结束</Text>
+              </Pressable>
+            )}
+            {phase === 'start' || phase === 'thinking' || isTyping ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: TH2.accSoft }}>
+                <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: ac }} />
+                <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 9, color: ac, letterSpacing: 1 }}>思考中</Text>
+              </View>
+            ) : (
+              <PlanetOrb goal={goal} size={28} mini />
+            )}
+          </View>
         </View>
 
-        {/* Messages + Input — in flex layout, input sits ABOVE planet visible area */}
         <Animated.View style={[{ flex: 1 }, contentAnim]}>
           <ScrollView
             ref={scrollRef}
             style={{ flex: 1 }}
             contentContainerStyle={{
               paddingHorizontal: 24, paddingTop: 8,
-              paddingBottom: showInput ? INPUT_GAP + 54 : INPUT_GAP + 16,
+              paddingBottom: showInput || phase === 'done' ? INPUT_GAP + 54 : INPUT_GAP + 16,
             }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
@@ -165,7 +265,7 @@ export default function GoalChatScreen() {
               );
               if (isLastAI && isTyping) return (
                 <View key={i} style={{ marginBottom: 20 }}>
-                  <Typewriter text={msg.text} speed={28} onDone={() => handleAIDone(msg.id!)} style={{ fontSize: 19 }} />
+                  <Typewriter text={msg.text} speed={28} onDone={handleAIDone} style={{ fontSize: 19 }} />
                 </View>
               );
               return (
@@ -175,26 +275,80 @@ export default function GoalChatScreen() {
               );
             })}
             {phase === 'thinking' && <ThinkingDots />}
-            {phase === 'done' && (
-              <View style={{ marginTop: 8, padding: 18, borderRadius: 16, backgroundColor: TH2.bg1, borderWidth: 1, borderColor: TH2.bdr }}>
-                <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 9, color: ac, letterSpacing: 1, marginBottom: 10 }}>如实注意到</Text>
-                <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 13, color: TH2.t1, lineHeight: 21, marginBottom: 16 }}>
-                  你描述的那个停顿，在这两周里出现了4次。每次都在"开始动笔"之前。
-                </Text>
-                <Pressable
-                  onPress={() => router.navigate('/(tabs)/settle')}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: TH2.accSoft, borderWidth: 1, borderColor: 'rgba(196,120,58,0.3)', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 7, alignSelf: 'flex-start' }}
-                >
-                  <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 12, color: ac }}>沉淀这个洞察</Text>
-                  <Svg width={10} height={10} viewBox="0 0 10 10" fill="none">
-                    <Path d="M2 5h6M5 2l3 3-3 3" stroke={ac} strokeWidth={1.4} strokeLinecap="round" />
-                  </Svg>
-                </Pressable>
+            {error ? (
+              <View style={{ padding: 10, borderRadius: 8, backgroundColor: 'rgba(255,0,0,0.06)', marginBottom: 20 }}>
+                <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 12, color: '#c44' }}>{error}</Text>
               </View>
-            )}
+            ) : null}
+            {phase === 'done' && lastAIMsg ? (
+              <View style={{ marginTop: 8, padding: 18, borderRadius: 16, backgroundColor: TH2.bg1, borderWidth: 1, borderColor: TH2.bdr }}>
+                <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 9, color: ac, letterSpacing: 1, marginBottom: 10 }}>今日打卡总结</Text>
+                <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 13, color: TH2.t1, lineHeight: 21, marginBottom: 14 }}>
+                  {lastAIMsg}
+                </Text>
+
+                {/* 进度更新 */}
+                {suggestedProgress !== null && (
+                  <View style={{ marginBottom: 14, padding: 12, borderRadius: 10, backgroundColor: TH2.bg2 }}>
+                    <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 8, color: TH2.t2, letterSpacing: 1, marginBottom: 8 }}>更新进度</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <Pressable
+                        onPress={() => setSuggestedProgress(p => p !== null ? Math.max(0, p - 5) : 0)}
+                        style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: TH2.bg0, borderWidth: 1, borderColor: TH2.bdr, alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 14, color: TH2.t1 }}>-</Text>
+                      </Pressable>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 22, color: ac }}>{suggestedProgress}%</Text>
+                        <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 9, color: TH2.t2 }}>← {goal.progress}%</Text>
+                      </View>
+                      <Pressable
+                        onPress={() => setSuggestedProgress(p => p !== null ? Math.min(100, p + 5) : 0)}
+                        style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: TH2.bg0, borderWidth: 1, borderColor: TH2.bdr, alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 14, color: TH2.t1 }}>+</Text>
+                      </Pressable>
+                    </View>
+                    <Pressable
+                      onPress={() => {
+                        updateGoalProgress(goal.id, suggestedProgress);
+                        setSuggestedProgress(null);
+                      }}
+                      style={{ marginTop: 10, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8, backgroundColor: ac, alignSelf: 'flex-start' }}
+                    >
+                      <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 12, color: '#fff' }}>确认更新</Text>
+                    </Pressable>
+                  </View>
+                )}
+
+                {saved ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: TH2.accSoft, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 7, alignSelf: 'flex-start' }}>
+                    <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 12, color: ac }}>已存入沉淀库</Text>
+                  </View>
+                ) : (
+                  <Pressable
+                    onPress={() => {
+                      addSettleCard({
+                        id: Date.now(),
+                        goal: goal.name,
+                        date: `${new Date().getMonth() + 1}月${new Date().getDate()}日`,
+                        title: lastAIMsg.slice(0, 12),
+                        text: lastAIMsg,
+                      });
+                      setSaved(true);
+                    }}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: TH2.accSoft, borderWidth: 1, borderColor: 'rgba(196,120,58,0.3)', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 7, alignSelf: 'flex-start' }}
+                  >
+                    <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 12, color: ac }}>保存到沉淀库</Text>
+                    <Svg width={10} height={10} viewBox="0 0 10 10" fill="none">
+                      <Path d="M2 5h6M5 2l3 3-3 3" stroke={ac} strokeWidth={1.4} strokeLinecap="round" />
+                    </Svg>
+                  </Pressable>
+                )}
+              </View>
+            ) : null}
           </ScrollView>
 
-          {/* Input bar — sits above the planet, moves with keyboard */}
           {showInput && (
             <View style={{
               borderTopWidth: 1, borderTopColor: TH2.bdr,
@@ -220,7 +374,6 @@ export default function GoalChatScreen() {
         </Animated.View>
       </KeyboardAvoidingView>
 
-      {/* ── Planet: rendered AFTER content so it appears on TOP; fixed, never moves with keyboard ── */}
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 20, pointerEvents: 'none' }}>
         <Animated.View style={[{ marginBottom: POFFSET, alignSelf: 'center' }, planetAnim]}>
           <PlanetOrb goal={goal} size={PSIZE} />

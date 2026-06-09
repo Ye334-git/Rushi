@@ -10,12 +10,11 @@ import { useApp, GOALS2, PLAN_ITEMS } from '../../../contexts/AppContext';
 export default function GoalPlanScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { accent } = useApp();
+  const { accent, goals: allGoals, extraGoals } = useApp();
   const ac = accent;
 
   const insets = useSafeAreaInsets();
-  const allGoals = [...GOALS2, ...useApp().extraGoals];
-  const goal = allGoals.find(g => g.id === Number(id)) || GOALS2[0];
+  const goal = [...allGoals, ...extraGoals].find(g => g.id === Number(id)) || GOALS2[0];
   const pal = PALS2[goal.pal];
   const [vis, setVis] = useState(false);
 
