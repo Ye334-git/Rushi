@@ -71,62 +71,101 @@ export default function SettlementScreen() {
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 80 }}>
           {settleCards.map(card => {
             const isExp = expanded === card.id;
+            const hasMethods = card.methods && card.methods.length > 0;
             return (
               <Pressable
                 key={card.id}
                 onPress={() => setExpanded(isExp ? null : card.id)}
                 style={{
-                  padding: 18,
-                  paddingRight: 16,
-                  paddingLeft: 20,
                   borderRadius: 16,
                   backgroundColor: TH2.bg1,
                   borderWidth: 1,
                   borderColor: TH2.bdr,
-                  borderLeftWidth: 3,
-                  borderLeftColor: TH2.success,
+                  overflow: 'hidden',
                   marginBottom: 12,
                 }}
               >
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                      <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 9, color: TH2.t2, letterSpacing: 0.5 }}>
-                        {card.date}
-                      </Text>
-                      <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: 'rgba(107,158,120,0.12)', borderWidth: 1, borderColor: 'rgba(107,158,120,0.2)' }}>
-                        <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 10, color: TH2.success }}>{card.goal}</Text>
+                {/* 卡片头部 */}
+                <View style={{ padding: 18, paddingRight: 16, paddingLeft: 20, borderLeftWidth: 3, borderLeftColor: hasMethods ? TH2.success : TH2.t2 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 9, color: TH2.t2, letterSpacing: 0.5 }}>
+                          {card.date}
+                        </Text>
+                        <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: 'rgba(107,158,120,0.12)', borderWidth: 1, borderColor: 'rgba(107,158,120,0.2)' }}>
+                          <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 10, color: TH2.success }}>{card.goal}</Text>
+                        </View>
                       </View>
+                      <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 15, color: TH2.t0 }}>
+                        {card.title}
+                      </Text>
+                      {!isExp && card.insight ? (
+                        <Text numberOfLines={2} style={{ fontFamily: 'Lora_500Medium_Italic', fontSize: 12, color: TH2.t2, marginTop: 4, lineHeight: 18 }}>
+                          {card.insight}
+                        </Text>
+                      ) : null}
                     </View>
-                    <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 15, color: TH2.t0, marginBottom: isExp ? 10 : 0 }}>
-                      {card.title}
-                    </Text>
-                    {!isExp ? (
-                      <Text
-                        numberOfLines={2}
-                        style={{ fontFamily: 'Lora_500Medium_Italic', fontSize: 12, color: TH2.t2, marginTop: 4, lineHeight: 18 }}
-                      >
+                    <Svg width={10} height={10} viewBox="0 0 10 10" fill="none" style={{ marginLeft: 12, transform: [{ rotate: isExp ? '180deg' : '0deg' }] }}>
+                      <Path d="M2 3.5l3 3 3-3" stroke={TH2.t2} strokeWidth={1.5} strokeLinecap="round" />
+                    </Svg>
+                  </View>
+                </View>
+
+                {/* 展开：洞察 + 方法 */}
+                {isExp && (
+                  <View style={{ padding: 18, paddingTop: 0, borderLeftWidth: 3, borderLeftColor: 'transparent' }}>
+                    {/* 洞察文本 */}
+                    {card.insight ? (
+                      <Text style={{ fontFamily: 'Lora_500Medium_Italic', fontSize: 13, color: TH2.t1, lineHeight: 22, marginBottom: hasMethods ? 14 : 0 }}>
+                        {card.insight}
+                      </Text>
+                    ) : card.text ? (
+                      <Text style={{ fontFamily: 'Lora_500Medium_Italic', fontSize: 13, color: TH2.t1, lineHeight: 22, marginBottom: hasMethods ? 14 : 0 }}>
                         {card.text}
                       </Text>
-                    ) : (
-                      <Text style={{ fontFamily: 'Lora_500Medium_Italic', fontSize: 13, color: TH2.t1, lineHeight: 22 }}>
-                        {card.text}
-                      </Text>
+                    ) : null}
+
+                    {/* 方法列表 */}
+                    {hasMethods && (
+                      <View style={{ gap: 10 }}>
+                        <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 8, color: TH2.success, letterSpacing: 1.5, marginBottom: 2 }}>
+                          提炼的方法
+                        </Text>
+                        {card.methods!.map((m, i) => {
+                          const isVerified = m.category.includes('已验证');
+                          return (
+                            <View key={i} style={{
+                              padding: 14,
+                              borderRadius: 12,
+                              backgroundColor: TH2.bg2,
+                              borderWidth: 1,
+                              borderColor: isVerified ? 'rgba(107,158,120,0.3)' : TH2.bdr,
+                            }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 14, color: TH2.t0 }}>{m.name}</Text>
+                                <View style={{ paddingHorizontal: 7, paddingVertical: 1, borderRadius: 999, backgroundColor: isVerified ? 'rgba(107,158,120,0.18)' : 'rgba(107,158,120,0.08)' }}>
+                                  <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 8, color: isVerified ? TH2.success : TH2.t2 }}>
+                                    {m.category}
+                                  </Text>
+                                </View>
+                              </View>
+                              <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 13, color: TH2.t1, lineHeight: 20, marginBottom: 6 }}>
+                                {m.summary}
+                              </Text>
+                              <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 12, color: TH2.t1, lineHeight: 18, marginBottom: 6 }}>
+                                {m.detail}
+                              </Text>
+                              <Text style={{ fontFamily: 'Lora_500Medium_Italic', fontSize: 11, color: TH2.t2, lineHeight: 17 }}>
+                                触发条件：{m.trigger}
+                              </Text>
+                            </View>
+                          );
+                        })}
+                      </View>
                     )}
                   </View>
-                  <Svg
-                    width={10}
-                    height={10}
-                    viewBox="0 0 10 10"
-                    fill="none"
-                    style={{
-                      marginLeft: 12,
-                      transform: [{ rotate: isExp ? '180deg' : '0deg' }],
-                    }}
-                  >
-                    <Path d="M2 3.5l3 3 3-3" stroke={TH2.t2} strokeWidth={1.5} strokeLinecap="round" />
-                  </Svg>
-                </View>
+                )}
               </Pressable>
             );
           })}

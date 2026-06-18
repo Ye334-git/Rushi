@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, Pressable, ScrollView,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
@@ -10,13 +10,17 @@ import { TH2 } from '../../constants/Colors';
 import { PlanetOrb } from '../../components/PlanetOrb';
 import { Typewriter } from '../../components/Typewriter';
 import { ThinkingDots } from '../../components/ThinkingDots';
-import { useApp, GOALS2 } from '../../contexts/AppContext';
-import { sendChatMessage } from '../../services/chat';
+import { useApp } from '../../contexts/AppContext';
+import { sendChatMessage, extractMethodology } from '../../services/chat';
+import type { MethodologyResult } from '../../services/chat';
 import { buildGeneralPrompt } from '../../services/prompts';
 import { loadConversation, saveConversation, clearConversation } from '../../services/storage';
 import { CARD_REGISTRY } from '../../services/cards';
+import { parseAIResponse } from '../../services/parser';
+import type { InterfaceAction } from '../../services/parser';
+import type { MethodItem } from '../../types/models';
 
-interface Msg { role: 'ai' | 'user'; text: string; }
+interface Msg { role: 'ai' | 'user'; text: string; action?: InterfaceAction; }
 
 const CONV_KEY = 'general';
 
@@ -26,7 +30,7 @@ const CONV_KEY = 'general';
 // ============================================================
 export default function GeneralChatScreen() {
   const router = useRouter();
-  const { accent, extraGoals, addSettleCard } = useApp();
+  const { accent, goals, extraGoals, addSettleCard, userProfile } = useApp();
   const ac = accent;
   const insets = useSafeAreaInsets();
 
@@ -36,11 +40,16 @@ export default function GeneralChatScreen() {
   const [error, setError] = useState('');
   const [ended, setEnded] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [kbHeight, setKbHeight] = useState(0);
+  const [methodology, setMethodology] = useState<MethodologyResult | null>(null);
+  const [pendingSettle, setPendingSettle] = useState<{ signal: string; goal: string } | null>(null);
+  const [settleLoading, setSettleLoading] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  const allGoals = [...GOALS2, ...extraGoals];
+  const allGoals = [...goals, ...extraGoals];
   const systemPrompt = buildGeneralPrompt(
     allGoals.map(g => ({ name: g.name, phase: g.phase, progress: g.progress })),
+    userProfile,
   );
 
   useEffect(() => {
@@ -61,6 +70,18 @@ export default function GeneralChatScreen() {
     scrollRef.current?.scrollToEnd({ animated: true });
   }, [msgs, phase]);
 
+  // Android 键盘避让：KeyboardAvoidingView 在 Android 上 behavior=undefined 不生效，
+  // 手动监听键盘高度，动态调整输入栏底部间距
+  useEffect(() => {
+    if (Platform.OS === 'ios') return; // iOS 由 KeyboardAvoidingView 处理
+    const show = Keyboard.addListener('keyboardDidShow', (e) => {
+      setKbHeight(e.endCoordinates.height);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKbHeight(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+
   const startNewConversation = async () => {
     await clearConversation(CONV_KEY);
     setMsgs([]);
@@ -69,8 +90,9 @@ export default function GeneralChatScreen() {
     setError('');
     setPhase('thinking');
     try {
-      const text = await sendChatMessage([], systemPrompt);
-      const firstMsg: Msg[] = [{ role: 'ai', text }];
+      const raw = await sendChatMessage([], systemPrompt);
+      const parsed = parseAIResponse(raw);
+      const firstMsg: Msg[] = [{ role: 'ai', text: parsed.text, action: parsed.action }];
       setMsgs(firstMsg);
       await saveConversation(CONV_KEY, firstMsg);
       setPhase('typing');
@@ -87,7 +109,32 @@ export default function GeneralChatScreen() {
     }));
 
   const handleAIDone = async () => {
+    // 检测 AI 是否主动建议沉淀方法
+    const lastMsg = msgs[msgs.length - 1];
+    if (lastMsg && lastMsg.role === 'ai' && lastMsg.action?.action === 'suggest_settle') {
+      const signal = (lastMsg.action.data as any)?.signal || '新发现的方法';
+      setPendingSettle({ signal, goal: '整体反思' });
+    }
     setPhase(ended ? 'done' : 'waiting');
+  };
+
+  // 用户点击"展开分析" → 调用 AI 提取方法
+  const handleAnalyzeSettle = async () => {
+    if (!pendingSettle) return;
+    setSettleLoading(true);
+    try {
+      const result = await extractMethodology(
+        buildApiMessages(msgs),
+        CARD_REGISTRY['general-summary'].synthesisPrompt!,
+      );
+      setMethodology(result);
+    } catch { /* ignore */ }
+    setSettleLoading(false);
+  };
+
+  // 用户忽略
+  const handleDismissSettle = () => {
+    setPendingSettle(null);
   };
 
   const handleSend = async () => {
@@ -101,8 +148,9 @@ export default function GeneralChatScreen() {
     setError('');
 
     try {
-      const text = await sendChatMessage(buildApiMessages(newMsgs), systemPrompt);
-      const full: Msg[] = [...newMsgs, { role: 'ai', text }];
+      const raw = await sendChatMessage(buildApiMessages(newMsgs), systemPrompt);
+      const parsed = parseAIResponse(raw);
+      const full: Msg[] = [...newMsgs, { role: 'ai', text: parsed.text, action: parsed.action }];
       setMsgs(full);
       await saveConversation(CONV_KEY, full);
       setPhase('typing');
@@ -116,11 +164,13 @@ export default function GeneralChatScreen() {
     setPhase('thinking');
     setEnded(true);
     try {
-      const summary = await sendChatMessage(
+      const result = await extractMethodology(
         buildApiMessages(msgs),
-        CARD_REGISTRY['general-summary'].synthesisPrompt,
+        CARD_REGISTRY['general-summary'].synthesisPrompt!,
       );
-      const full: Msg[] = [...msgs, { role: 'ai', text: summary }];
+      setMethodology(result);
+      const displayText = result.insight || '已生成反思总结。';
+      const full: Msg[] = [...msgs, { role: 'ai', text: displayText }];
       setMsgs(full);
       await saveConversation(CONV_KEY, full);
       setPhase('typing');
@@ -212,12 +262,118 @@ export default function GeneralChatScreen() {
             <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 12, color: '#c44' }}>{error}</Text>
           </View>
         ) : null}
+
+        {/* AI 主动建议沉淀方法 */}
+        {pendingSettle && (
+          <View style={{ marginBottom: 20, padding: 16, borderRadius: 14, backgroundColor: TH2.bg1, borderWidth: 1, borderColor: 'rgba(107,158,120,0.25)', borderLeftWidth: 3, borderLeftColor: TH2.success }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 9, color: TH2.success, letterSpacing: 1 }}>可能要沉淀</Text>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: TH2.success }} />
+            </View>
+            <Text style={{ fontFamily: 'Lora_500Medium_Italic', fontSize: 14, color: TH2.t1, lineHeight: 22, marginBottom: 12 }}>
+              {pendingSettle.signal}
+            </Text>
+
+            {/* 未展开分析时 */}
+            {!methodology && (
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <Pressable
+                  onPress={handleAnalyzeSettle}
+                  disabled={settleLoading}
+                  style={{ flex: 1, height: 38, borderRadius: 10, backgroundColor: TH2.success, alignItems: 'center', justifyContent: 'center', opacity: settleLoading ? 0.6 : 1 }}
+                >
+                  <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 13, color: '#fff' }}>
+                    {settleLoading ? '分析中…' : '展开分析'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={handleDismissSettle}
+                  style={{ height: 38, paddingHorizontal: 18, borderRadius: 10, backgroundColor: 'transparent', borderWidth: 1, borderColor: TH2.bdr, alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 13, color: TH2.t2 }}>忽略</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* 展开后显示方法 + 保存按钮 */}
+            {methodology && methodology.methods.length > 0 && (
+              <View style={{ gap: 8 }}>
+                {methodology.methods.map((m: MethodItem, i: number) => (
+                  <View key={i} style={{ padding: 12, borderRadius: 10, backgroundColor: TH2.bg2, borderWidth: 1, borderColor: TH2.bdr }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 13, color: TH2.t0 }}>{m.name}</Text>
+                      <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 8, color: TH2.success }}>{m.category}</Text>
+                    </View>
+                    <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 12, color: TH2.t1, lineHeight: 18 }}>
+                      {m.summary}
+                    </Text>
+                  </View>
+                ))}
+                {methodology.insight ? (
+                  <Text style={{ fontFamily: 'Lora_500Medium_Italic', fontSize: 12, color: TH2.t2, lineHeight: 18 }}>
+                    {methodology.insight}
+                  </Text>
+                ) : null}
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                  <Pressable
+                    onPress={() => {
+                      addSettleCard({
+                        id: Date.now(),
+                        goal: pendingSettle!.goal,
+                        date: `${new Date().getMonth() + 1}月${new Date().getDate()}日`,
+                        title: methodology.methods[0]?.name || pendingSettle!.signal,
+                        text: methodology.insight || '',
+                        insight: methodology.insight,
+                        methods: methodology.methods,
+                      });
+                      setPendingSettle(null);
+                      setMethodology(null);
+                    }}
+                    style={{ flex: 1, height: 38, borderRadius: 10, backgroundColor: TH2.success, alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 13, color: '#fff' }}>记下来</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={handleDismissSettle}
+                    style={{ height: 38, paddingHorizontal: 18, borderRadius: 10, backgroundColor: 'transparent', borderWidth: 1, borderColor: TH2.bdr, alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 13, color: TH2.t2 }}>忽略</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+
         {phase === 'done' && lastAIMsg ? (
           <View style={{ padding: 18, borderRadius: 16, backgroundColor: TH2.bg1, borderWidth: 1, borderColor: TH2.bdr, marginBottom: 16 }}>
             <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 9, color: ac, letterSpacing: 1, marginBottom: 10 }}>本周模式</Text>
-            <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 13, color: TH2.t1, lineHeight: 21, marginBottom: 16 }}>
+            <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 13, color: TH2.t1, lineHeight: 21, marginBottom: methodology && methodology.methods.length > 0 ? 14 : 16 }}>
               {lastAIMsg}
             </Text>
+
+            {/* 提取的方法 */}
+            {methodology && methodology.methods.length > 0 && (
+              <View style={{ gap: 10, marginBottom: 16 }}>
+                {methodology.methods.map((m: MethodItem, i: number) => (
+                  <View key={i} style={{ padding: 12, borderRadius: 12, backgroundColor: TH2.bg2, borderWidth: 1, borderColor: TH2.bdr, borderLeftWidth: 3, borderLeftColor: TH2.success }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 13, color: TH2.t0 }}>{m.name}</Text>
+                      <View style={{ paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, backgroundColor: 'rgba(107,158,120,0.12)' }}>
+                        <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 8, color: TH2.success }}>{m.category}</Text>
+                      </View>
+                    </View>
+                    <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 12, color: TH2.t1, lineHeight: 18, marginBottom: 4 }}>
+                      {m.summary}
+                    </Text>
+                    <Text style={{ fontFamily: 'Lora_500Medium_Italic', fontSize: 11, color: TH2.t2, lineHeight: 16 }}>
+                      触发：{m.trigger}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
             {saved ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: TH2.accSoft, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 7, alignSelf: 'flex-start' }}>
                 <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 12, color: ac }}>已存入沉淀库</Text>
@@ -229,8 +385,10 @@ export default function GeneralChatScreen() {
                     id: Date.now(),
                     goal: '整体反思',
                     date: `${new Date().getMonth() + 1}月${new Date().getDate()}日`,
-                    title: lastAIMsg.slice(0, 12),
+                    title: methodology?.methods?.[0]?.name || lastAIMsg.slice(0, 8),
                     text: lastAIMsg,
+                    insight: methodology?.insight,
+                    methods: methodology?.methods,
                   });
                   setSaved(true);
                 }}
@@ -247,7 +405,7 @@ export default function GeneralChatScreen() {
       </ScrollView>
 
       <View
-        style={{ borderTopWidth: 1, borderTopColor: TH2.bdr, paddingHorizontal: 18, paddingTop: 10, paddingBottom: insets.bottom + 70, opacity: showInput ? 1 : 0 }}
+        style={{ borderTopWidth: 1, borderTopColor: TH2.bdr, paddingHorizontal: 18, paddingTop: 10, paddingBottom: Platform.OS === 'android' ? Math.max(kbHeight, insets.bottom + 70) : insets.bottom + 70, opacity: showInput ? 1 : 0 }}
         pointerEvents={showInput ? 'auto' : 'none'}
       >
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>

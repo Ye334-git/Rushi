@@ -5,7 +5,8 @@ import { useRouter } from 'expo-router';
 import Svg, { Circle, Ellipse } from 'react-native-svg';
 import { TH2 } from '../constants/Colors';
 import { PlanetOrb } from '../components/PlanetOrb';
-import { useApp, GOALS2 } from '../contexts/AppContext';
+import { useApp } from '../contexts/AppContext';
+import type { Goal } from '../types/models';
 
 export default function StartScreen() {
   const router = useRouter();
@@ -68,7 +69,7 @@ export default function StartScreen() {
           <Svg style={{ position: 'absolute' }} width={300} height={300}>
             <Ellipse cx={150} cy={150} rx={138} ry={48} stroke={ac} strokeWidth={1} fill="none" opacity={0.07} />
           </Svg>
-          <PlanetOrb goal={GOALS2[0]} size={200} />
+          <PlanetOrb goal={{ id: 0, name: '', phase: '', progress: 0, pal: 0, cx: '0%', cy: '0%', sz: 200 } as Goal} size={200} />
         </View>
 
         <View style={{ flex: 1 }} />

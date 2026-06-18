@@ -18,10 +18,15 @@ interface Message {
   content: string;
 }
 
+import type { PlanPhase } from '../types/models';
+
 export interface GoalSynthesis {
   name: string;
   phase: string;
   summary: string;
+  insight: string;
+  planSteps: { label: string; desc: string }[];
+  phases?: PlanPhase[];
 }
 
 async function callDirect(
@@ -34,8 +39,9 @@ async function callDirect(
     model: 'deepseek-v4-flash',
     messages: [{ role: 'system', content: system }, ...messages],
     temperature: 0.7,
-    // 普通对话 256 tokens 足够（一两句追问），JSON 模式需要更多空间
-    max_tokens: jsonMode ? 512 : 256,
+    // System prompt + 画像 + 对话历史已占 ~800 tokens，需留足空间给 AI 回复
+    // 普通对话：追问文本 + INTERFACE JSON；合成模式：phases 计划 + insight
+    max_tokens: jsonMode ? 2048 : 1024,
   };
   if (jsonMode) body.response_format = { type: 'json_object' };
 
@@ -54,7 +60,11 @@ async function callDirect(
   }
 
   const data = await resp.json();
-  return data.choices?.[0]?.message?.content || '';
+  const content: string = data.choices?.[0]?.message?.content || '';
+  if (!content) {
+    console.warn('[chat] API 返回空 content，finish_reason:', data.choices?.[0]?.finish_reason);
+  }
+  return content;
 }
 
 async function callProxy(
@@ -75,10 +85,38 @@ async function callProxy(
   }
 
   const data = await resp.json();
-  return data.text || '';
+  const content: string = data.text || '';
+  if (!content) {
+    console.warn('[chat] 代理返回空 text');
+  }
+  return content;
 }
 
 const callAPI = USE_DIRECT ? callDirect : callProxy;
+
+export interface MethodologyResult {
+  insight: string;
+  progress?: number;
+  methods: { name: string; summary: string; detail: string; trigger: string; category: string }[];
+}
+
+export async function extractMethodology(
+  messages: Message[],
+  system: string,
+): Promise<MethodologyResult> {
+  const text = await callAPI(messages, system, true);
+  try {
+    const parsed = JSON.parse(text);
+    return {
+      insight: parsed.insight || '',
+      progress: typeof parsed.progress === 'number' ? parsed.progress : undefined,
+      methods: Array.isArray(parsed.methods) ? parsed.methods : [],
+    };
+  } catch {
+    // 解析失败时，把整段文本当 insight 返回
+    return { insight: text.slice(0, 80), methods: [] };
+  }
+}
 
 export async function sendChatMessage(
   messages: Message[],
@@ -96,17 +134,33 @@ export async function synthesizeGoal(
   try {
     const parsed = JSON.parse(text);
     return {
-      name: (parsed.name || '新目标').slice(0, 4),
+      name: (parsed.name || '新目标').slice(0, 8),
       phase: parsed.phase || '现状→突破',
       summary: parsed.summary || '',
+      insight: parsed.insight || '',
+      planSteps: Array.isArray(parsed.plan_steps) ? parsed.plan_steps : [],
+      phases: Array.isArray(parsed.phases) ? parsed.phases.map((p: any, pi: number) => ({
+        id: `phase_${pi}`,
+        label: p.label || '',
+        time_range: p.time_range || '',
+        milestone: p.milestone,
+        tasks: Array.isArray(p.tasks) ? p.tasks.map((t: any, ti: number) => ({
+          id: `task_${pi}_${ti}`,
+          text: t.text || '',
+          granularity: t.granularity || 'day',
+          linked_cause: t.linked_cause,
+        })) : [],
+      })) : undefined,
     };
   } catch {
     const nameMatch = text.match(/"name"\s*:\s*"([^"]+)"/);
     const phaseMatch = text.match(/"phase"\s*:\s*"([^"]+)"/);
     return {
-      name: nameMatch?.[1]?.slice(0, 4) || '新目标',
+      name: nameMatch?.[1]?.slice(0, 8) || '新目标',
       phase: phaseMatch?.[1] || '现状→突破',
       summary: '',
+      insight: '',
+      planSteps: [],
     };
   }
 }

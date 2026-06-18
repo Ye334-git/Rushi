@@ -51,7 +51,7 @@ export async function clearConversation(key: ConversationKey): Promise<void> {
 // 存储 Key: app_state
 // ============================================================
 
-import type { Goal, SettleCard, TimelineMonth } from '../types/models';
+import type { Goal, SettleCard, TimelineMonth, UserProfile } from '../types/models';
 
 interface SavedAppState {
   goals: Goal[];
@@ -59,6 +59,7 @@ interface SavedAppState {
   settleCards: SettleCard[];
   timelineData: TimelineMonth[];
   onboardingComplete: boolean;
+  userProfile?: UserProfile;
 }
 
 const APP_STATE_KEY = 'app_state';

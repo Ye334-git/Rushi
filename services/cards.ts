@@ -1,80 +1,76 @@
 // ============================================================
 // 卡片系统 — 所有对话结算卡片的统一配置
 //
-// 每个卡片 = 触发条件 + AI Prompt + 内容解析 + 按钮行为
-// 添加新卡片：在 CARD_REGISTRY 中新增一个条目即可
-// 所有 System Prompt 在 services/prompts.ts 中独立管理
+// 触发方式分两种：
+//   1. manual — 用户点击按钮触发（"结束"、"生成目标"）
+//   2. interface_action — AI 在 ---INTERFACE--- 中输出指定 action 时自动触发
+//
+// interface_action 映射表（AI 输出 → 卡片渲染）：
+//   suggest_progress   → 弹出进度建议控件
+//   generate_cause_cards → 弹出真因卡片列表
+//   generate_plan      → 弹出行动计划卡片
+//   render_cause_tree  → 弹出原因层级图
+//   skip_to_plan       → 跳过卡点挖掘，直接进入计划生成
 // ============================================================
 
-// ─── 类型定义 ───
+/** AI 界面指令 → 前端卡片动作映射 */
+export const INTERFACE_CARD_MAP: Record<string, string> = {
+  suggest_progress: 'goal-checkin-progress',
+  generate_cause_cards: 'add-goal-cause-cards',
+  generate_plan: 'add-goal-plan',
+  render_cause_tree: 'add-goal-cause-tree',
+  skip_to_plan: 'add-goal-plan',
+  listening: 'none',
+  update_node: 'none',
+  split_node: 'none',
+  show_echo: 'none',
+  flip_node: 'none',
+  mark_node_done: 'none',
+  suggest_settle: 'suggest-settle',
+};
 
 /** 卡片触发方式 */
-type TriggerType =
-  | 'manual'        // 用户手动点击按钮触发（如"结束"、"生成目标"）
-  | 'ai_marker'     // AI 在回复中标记某个字符串触发
-  | 'auto_exchanges'; // 对话达到一定轮数自动触发
+type TriggerType = 'manual' | 'interface_action';
 
 /** 卡片按钮动作 */
 interface CardAction {
-  /** 按钮文字 */
   label: string;
-  /** 动作类型 — 执行后会调用 AppContext 对应函数 */
   action: 'save_insight' | 'add_goal' | 'update_progress' | 'none';
-  /** 按钮样式变体 */
   variant: 'primary' | 'secondary';
-  /** 动作完成后显示的文字 */
   doneLabel?: string;
 }
 
-/** 单张卡片的完整配置 */
 export interface CardConfig {
-  /** 唯一标识 — 代码中引用 */
   id: string;
-  /** 显示名 — 方便工程师识别 */
   name: string;
-  /** 所属对话模块 */
   module: 'general-chat' | 'goal-chat' | 'add-goal';
-  /** 触发条件 */
   trigger: {
     type: TriggerType;
-    /** 触发按钮文字（manual 类型时使用） */
     buttonLabel?: string;
-    /** AI 标记字符串（ai_marker 类型时使用） */
-    marker?: string;
-    /** 标记的正则 — 用于解析数值（如 [PROGRESS:65] → 65） */
-    markerRegex?: string;
-    /** 最小对话轮数（auto_exchanges / 备选触发） */
+    /** interface_action 触发时，匹配 AI 的 action 字段 */
+    interfaceAction?: string;
+    /** 最小对话轮数（备选触发） */
     minExchanges?: number;
   };
-  /** 生成卡片内容时发给 AI 的额外 Prompt（追加在 System Prompt 后） */
-  synthesisPrompt: string;
-  /** 卡片上显示的标签文字（如"如实注意到"、"今日打卡总结"） */
+  /** 手动触发时发给 AI 的结语 Prompt */
+  synthesisPrompt?: string;
   cardLabel: string;
-  /** 卡片上的按钮 */
   actions: CardAction[];
-  /** 是否需要显示进度调整控件 */
   showProgressControl?: boolean;
 }
-
-// ─── 卡片注册表 ───
 
 export const CARD_REGISTRY: Record<string, CardConfig> = {
 
   // ==========================================
-  // 卡片1: 总体对话 → 反思总结卡片
-  // 触发：用户点"结束"
-  // 行为：AI 总结 → 保存到沉淀库
+  // 卡片1: 总体对话 → 反思总结（手动触发）
   // ==========================================
   'general-summary': {
     id: 'general-summary',
     name: '总体反思总结',
     module: 'general-chat',
-    trigger: {
-      type: 'manual',
-      buttonLabel: '结束',
-    },
+    trigger: { type: 'manual', buttonLabel: '结束' },
     synthesisPrompt:
-      '请根据以上对话，用一段话（80字以内）总结用户此刻的核心状态和一个值得注意的模式。直接输出，不要加"根据对话"之类的引言。',
+      '请根据以上对话，分析用户的状态并提取方法。返回 JSON：\n{\n  "insight": "核心洞察（60字内，第二人称）",\n  "methods": [\n    {\n      "name": "方法名称（≤6字）",\n      "summary": "一句话概括（15字内）",\n      "detail": "具体怎么做（30字内）",\n      "trigger": "什么时候用这个方法",\n      "category": "启动策略 / 执行技巧 / 中断恢复 / 复盘方法 / 情绪调节 / 其他"\n    }\n  ]\n}\n如果没有可提炼的方法，methods 返回空数组。只返回 JSON。',
     cardLabel: '本周模式',
     actions: [
       { label: '保存到沉淀库', action: 'save_insight', variant: 'primary', doneLabel: '已存入沉淀库' },
@@ -82,10 +78,7 @@ export const CARD_REGISTRY: Record<string, CardConfig> = {
   },
 
   // ==========================================
-  // 卡片2: 目标打卡 → 打卡总结 + 进度更新
-  // 触发：用户点"结束"
-  // AI 标记：[PROGRESS:数字] 用于建议进度
-  // 行为：AI 总结 + 进度调整 + 保存到沉淀库
+  // 卡片2: 目标打卡 → 手动结束 + suggest_progress 触发进度控件
   // ==========================================
   'goal-checkin': {
     id: 'goal-checkin',
@@ -94,12 +87,9 @@ export const CARD_REGISTRY: Record<string, CardConfig> = {
     trigger: {
       type: 'manual',
       buttonLabel: '结束',
-      // 同时检测对话中 AI 是否已给出进度建议
-      marker: '[PROGRESS:',
-      markerRegex: '\\[PROGRESS:(\\d+)\\]',
     },
     synthesisPrompt:
-      '请根据以上对话总结：\n1. 用一段话（60字以内）概括用户今日的进展或卡点\n2. 在末尾给出进度建议，格式：[PROGRESS:数字]\n直接输出，不要加引言。',
+      '请根据以上对话，分析用户今日进展并提取方法。返回 JSON：\n{\n  "insight": "今日核心洞察（60字内，第二人称）",\n  "progress": 数字（0-100，基于今日进展的建议值，如果用户没有进展则保持对话中最后提到的值）,\n  "methods": [\n    {\n      "name": "方法名称（≤6字）",\n      "summary": "一句话概括（15字内）",\n      "detail": "具体怎么做（30字内）",\n      "trigger": "什么时候用这个方法",\n      "category": "启动策略 / 执行技巧 / 中断恢复 / 复盘方法 / 情绪调节 / 其他"\n    }\n  ]\n}\n如果没有可提炼的方法，methods 返回空数组。只返回 JSON。',
     cardLabel: '今日打卡总结',
     showProgressControl: true,
     actions: [
@@ -109,51 +99,52 @@ export const CARD_REGISTRY: Record<string, CardConfig> = {
   },
 
   // ==========================================
-  // 卡片3: 新建目标 → 目标生成卡片
-  // 触发：AI 标 [READY] 或 ≥6 条消息 → "生成目标"按钮
-  // 行为：AI 转 JSON → 生成 Goal → 确认入库
+  // 卡片3: 新建目标 → 卡点挖掘 + 真因卡片 + 行动计划
   // ==========================================
-  'goal-synthesis': {
-    id: 'goal-synthesis',
-    name: '新目标生成',
+  'add-goal-cause-tree': {
+    id: 'add-goal-cause-tree',
+    name: '原因层级图',
     module: 'add-goal',
-    trigger: {
-      type: 'ai_marker',
-      marker: '[READY]',
-      minExchanges: 6,
-      buttonLabel: '生成目标',
-    },
-    synthesisPrompt:
-      '请根据上面的对话，生成一个目标总结。\n\n返回 JSON 格式：\n{\n  "name": "目标名称（最多4个中文字，简洁有力）",\n  "phase": "阶段描述（格式如：现状→突破，用→连接现在和未来）",\n  "summary": "一句话总结用户想达成什么（20字以内）"\n}\n\n只返回 JSON，不要任何其他内容。',
-    cardLabel: '如实理解的是这样——',
+    trigger: { type: 'interface_action', interfaceAction: 'render_cause_tree' },
+    cardLabel: '你的卡点结构',
+    actions: [],
+  },
+
+  'add-goal-cause-cards': {
+    id: 'add-goal-cause-cards',
+    name: '真因卡片',
+    module: 'add-goal',
+    trigger: { type: 'interface_action', interfaceAction: 'generate_cause_cards' },
+    cardLabel: '核心阻碍',
+    actions: [
+      { label: '生成行动计划', action: 'none', variant: 'primary' },
+    ],
+  },
+
+  'add-goal-plan': {
+    id: 'add-goal-plan',
+    name: '行动计划 + 目标入库',
+    module: 'add-goal',
+    trigger: { type: 'interface_action', interfaceAction: 'generate_plan' },
+    cardLabel: '你的目标档案',
     actions: [
       { label: '确认，开始追踪', action: 'add_goal', variant: 'primary' },
       { label: '重新描述', action: 'none', variant: 'secondary' },
     ],
   },
+
+  // ==========================================
+  // 卡片4: 自动方法检测 → 轻量提示（AI 主动触发）
+  // ==========================================
+  'suggest-settle': {
+    id: 'suggest-settle',
+    name: '方法检测',
+    module: 'general-chat',
+    trigger: { type: 'interface_action', interfaceAction: 'suggest_settle' },
+    cardLabel: '可能要沉淀',
+    actions: [
+      { label: '展开分析', action: 'save_insight', variant: 'primary' },
+      { label: '忽略', action: 'none', variant: 'secondary' },
+    ],
+  },
 };
-
-// ─── 工具函数 ───
-
-/** 检测 AI 文本中是否包含指定标记 */
-export function detectMarker(text: string, marker: string): boolean {
-  return text.includes(marker);
-}
-
-/** 从 AI 文本中提取标记中的数值（如 [PROGRESS:65] → 65） */
-export function extractMarkerValue(text: string, pattern: string): number | null {
-  const match = text.match(new RegExp(pattern));
-  return match ? parseInt(match[1], 10) : null;
-}
-
-/** 清理 AI 文本中的标记（显示时去掉标记字符串） */
-export function stripMarker(text: string, pattern: string): string {
-  return text.replace(new RegExp(pattern), '').trim();
-}
-
-/** 根据对话数量判断阶段（新建目标用） */
-export function getPhaseByExchanges(count: number): number {
-  if (count <= 1) return 0; // 说清楚
-  if (count <= 3) return 1; // 找规律
-  return 2;                 // 定方向
-}

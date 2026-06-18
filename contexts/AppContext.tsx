@@ -6,7 +6,7 @@ import React, {
   useEffect,
   useRef,
 } from 'react';
-import type { Goal, SettleCard, TimelineMonth, ChatMessage } from '../types/models';
+import type { Goal, SettleCard, TimelineMonth, ChatMessage, UserProfile } from '../types/models';
 import { loadAppState, saveAppState } from '../services/storage';
 
 // ─── 初始数据 ───
@@ -34,47 +34,8 @@ export function assignPosition(goals: { id: number; name: string; phase: string;
   return { ...slot, pal: index % 4 };
 }
 
-export const GOALS2: Goal[] = [
-  { id: 1, name: '写作卡点', phase: '选题→动笔', progress: 42, pal: 0, cx: '21%', cy: '22%', sz: 130 },
-  { id: 2, name: '时间分配', phase: '效率→从容', progress: 67, pal: 1, cx: '67%', cy: '14%', sz: 108 },
-  { id: 3, name: '边界设定', phase: '说不→自在', progress: 18, pal: 2, cx: '60%', cy: '48%', sz: 118 },
-  { id: 4, name: '早起习惯', phase: '意志→执行', progress: 85, pal: 3, cx: '15%', cy: '56%', sz: 96 },
-];
-
-export const SETTLE_CARDS: SettleCard[] = [
-  { id: 1, goal: '写作卡点', date: '5月21日', title: '启动仪式', text: '发现自己在打开文档前总会做同一个动作——倒水、戴耳机。把这个仪式刻意化，让开始变得容易了。' },
-  { id: 2, goal: '时间分配', date: '5月18日', title: '25分钟法则', text: '不是"我要写完这篇"，而是"我要专注25分钟"。目标变小了，阻力也变小了。' },
-  { id: 3, goal: '边界设定', date: '5月14日', title: '3秒空间', text: '在答应别人之前，给自己3秒。不是用来拒绝，而是用来感受自己真正的意愿。' },
-];
-
-export const TIMELINE_DATA: TimelineMonth[] = [
-  {
-    month: '2025年5月', items: [
-      { date: '5月21日', goal: '写作卡点', pal: 0, title: '启动仪式', text: '发现自己在打开文档前总会做同一个动作——倒水、戴耳机。把这个仪式刻意化，让开始变得容易了。' },
-      { date: '5月18日', goal: '时间分配', pal: 1, title: '25分钟法则', text: '不是"我要写完这篇"，而是"我要专注25分钟"。目标变小了，阻力也变小了。' },
-      { date: '5月14日', goal: '边界设定', pal: 2, title: '3秒空间', text: '在答应别人之前，给自己3秒。不是用来拒绝，而是用来感受自己真正的意愿。' },
-    ],
-  },
-  {
-    month: '2025年4月', items: [
-      { date: '4月28日', goal: '时间分配', pal: 1, title: '深工作时段', text: '把"困难任务"放在上午10点前。不是因为意志力，而是因为那时干扰最少。' },
-      { date: '4月15日', goal: '早起习惯', pal: 3, title: '5分钟锚点', text: '不用"早起"这个目标压自己，只需在闹钟响起后，做一件5分钟的事。' },
-    ],
-  },
-];
-
-export const OB_STEPS = [
-  { q: '你想关注的方向？', opts: ['工作效率', '情绪管理', '人际边界', '创造力', '自我认知', '习惯养成', '拖延执行', '压力应对'] },
-  { q: '你通常怎么描述卡点？', opts: ['说不清楚', '知道但做不到', '反复放弃', '想太多', '太分散', '拒绝开始'] },
-  { q: '你现在处于？', opts: ['刚刚意识到', '卡了一段时间', '想重新开始', '寻找突破口'] },
-];
-
-export const PLAN_ITEMS = [
-  { label: '理解卡点', done: true, desc: '已找到：从"完美开头"的执念出发' },
-  { label: '识别模式', done: true, desc: '每次卡住前，都在等待某种"确定感"' },
-  { label: '行动实验', done: false, desc: '本周试：先写烂草稿，不回头看' },
-  { label: '复盘总结', done: false, desc: '完成3次实验后开启' },
-];
+// @deprecated 旧版引导步骤，已被入场问卷取代
+export const OB_STEPS: { q: string; opts: string[] }[] = [];
 
 
 // ─── Context 类型 ───
@@ -86,24 +47,27 @@ interface AppContextType {
   deleteGoal: (id: number) => void;
   clearNewFlag: (id: number) => void;
   updateGoalProgress: (id: number, progress: number) => void;
+  updateGoalPlanStep: (goalId: number, stepId: string, done: boolean) => void;
   accent: string;
   setAccent: (c: string) => void;
   onboardingComplete: boolean;
-  completeOnboarding: () => void;
+  completeOnboarding: (profile?: UserProfile) => void;
   settleCards: SettleCard[];
   timelineData: TimelineMonth[];
   addSettleCard: (card: SettleCard) => void;
+  userProfile: UserProfile | null;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [goals, setGoals] = useState<Goal[]>(GOALS2);
+  const [goals, setGoals] = useState<Goal[]>([]);
   const [extraGoals, setExtraGoals] = useState<Goal[]>([]);
   const [accent, setAccent] = useState('#C4783A');
   const [onboardingComplete, setOnboardingComplete] = useState(false);
-  const [settleCards, setSettleCards] = useState<SettleCard[]>(SETTLE_CARDS);
-  const [timelineData, setTimelineData] = useState<TimelineMonth[]>(TIMELINE_DATA);
+  const [settleCards, setSettleCards] = useState<SettleCard[]>([]);
+  const [timelineData, setTimelineData] = useState<TimelineMonth[]>([]);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const loaded = useRef(false);
 
   // 启动时从 AsyncStorage 恢复状态
@@ -113,9 +77,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (saved) {
         setGoals(saved.goals);
         setExtraGoals(saved.extraGoals);
-        setSettleCards(saved.settleCards);
-        setTimelineData(saved.timelineData);
+        // 清除旧版预设沉淀数据（id≤3 或 2025年的旧数据）
+        setSettleCards((saved.settleCards || []).filter(c => c.id > 3));
+        setTimelineData((saved.timelineData || []).filter(m => !m.month.startsWith('2025')));
         setOnboardingComplete(saved.onboardingComplete);
+        if (saved.userProfile) setUserProfile(saved.userProfile);
       }
       loaded.current = true;
     })();
@@ -124,8 +90,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // 状态变化时自动持久化（跳过首次加载前的空保存）
   useEffect(() => {
     if (!loaded.current) return;
-    saveAppState({ goals, extraGoals, settleCards, timelineData, onboardingComplete });
-  }, [goals, extraGoals, settleCards, timelineData, onboardingComplete]);
+    saveAppState({ goals, extraGoals, settleCards, timelineData, onboardingComplete, userProfile: userProfile || undefined });
+  }, [goals, extraGoals, settleCards, timelineData, onboardingComplete, userProfile]);
 
   const addExtraGoal = useCallback((g: Goal) => {
     setExtraGoals(prev => [...prev, { ...g, isNew: true }]);
@@ -135,12 +101,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setExtraGoals(prev => prev.map(g => g.id === id ? { ...g, isNew: false } : g));
   }, []);
 
-  const completeOnboarding = useCallback(() => {
+  const completeOnboarding = useCallback((profile?: UserProfile) => {
     setOnboardingComplete(true);
+    if (profile) setUserProfile(profile);
   }, []);
 
   const addSettleCard = useCallback((card: SettleCard) => {
-    setSettleCards(prev => [card, ...prev]);
+    setSettleCards(prev => {
+      // 方法合并：同名方法跨卡片出现时，在后出现的卡片中标记为已验证
+      const allMethods = prev.flatMap(c => c.methods || []);
+      const existingNames = new Set(allMethods.map(m => m.name));
+      if (card.methods && card.methods.length > 0) {
+        const mergedMethods = card.methods.map(m => ({
+          ...m,
+          // 如果方法名已存在于之前的卡片中，用 category 后缀标记验证次数
+          category: existingNames.has(m.name)
+            ? `${m.category} · 已验证`
+            : m.category,
+        }));
+        return [{ ...card, methods: mergedMethods }, ...prev];
+      }
+      return [card, ...prev];
+    });
     const month = `${new Date().getFullYear()}年${new Date().getMonth() + 1}月`;
     setTimelineData(prev => {
       const existing = prev.find(m => m.month === month);
@@ -160,6 +142,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setExtraGoals(prev => prev.map(g => g.id === id ? { ...g, progress: Math.min(100, Math.max(0, progress)) } : g));
   }, []);
 
+  const updateGoalPlanStep = useCallback((goalId: number, stepId: string, done: boolean) => {
+    const update = (prev: Goal[]) => prev.map(g =>
+      g.id === goalId && g.planSteps
+        ? { ...g, planSteps: g.planSteps.map(s => s.id === stepId ? { ...s, done } : s) }
+        : g
+    );
+    setGoals(update);
+    setExtraGoals(update);
+  }, []);
+
   const deleteGoal = useCallback((id: number) => {
     setGoals(prev => prev.filter(g => g.id !== id));
     setExtraGoals(prev => prev.filter(g => g.id !== id));
@@ -167,10 +159,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      goals, extraGoals, addExtraGoal, deleteGoal, clearNewFlag, updateGoalProgress,
+      goals, extraGoals, addExtraGoal, deleteGoal, clearNewFlag, updateGoalProgress, updateGoalPlanStep,
       accent, setAccent,
       onboardingComplete, completeOnboarding,
       settleCards, timelineData, addSettleCard,
+      userProfile,
     }}>
       {children}
     </AppContext.Provider>

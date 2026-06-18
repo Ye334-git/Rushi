@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  View, Text, TextInput, Pressable, ScrollView, Keyboard,
+  View, Text, TextInput, Pressable, ScrollView, Keyboard, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
@@ -9,65 +9,59 @@ import { TH2 } from '../constants/Colors';
 import { PlanetOrb } from '../components/PlanetOrb';
 import { Typewriter } from '../components/Typewriter';
 import { ThinkingDots } from '../components/ThinkingDots';
-import { useApp, GOALS2 } from '../contexts/AppContext';
+import { useApp } from '../contexts/AppContext';
 import { sendChatMessage, synthesizeGoal } from '../services/chat';
 import { buildAddGoalPrompt, buildSynthesisPrompt } from '../services/prompts';
-import { CARD_REGISTRY, detectMarker } from '../services/cards';
-import type { Goal } from '../types/models';
+import { CARD_REGISTRY } from '../services/cards';
+import { parseAIResponse } from '../services/parser';
+import type { InterfaceAction } from '../services/parser';
+import type { Goal, PlanPhase } from '../types/models';
 
-interface Msg { role: 'ai' | 'user'; text: string; }
+interface Msg { role: 'ai' | 'user'; text: string; action?: InterfaceAction; }
 
-// 卡片配置来自 services/cards.ts — 修改触发条件/按钮文字统一在那改
 const PHASE_LABELS = ['说清楚', '找规律', '定方向'];
-const systemPrompt = buildAddGoalPrompt();
-const cardConfig = CARD_REGISTRY['goal-synthesis'];
-const READY_MARKER = cardConfig.trigger.marker!;
-const MIN_EXCHANGES = cardConfig.trigger.minExchanges!;
+
+// 固定的开场白 — 不经过 AI，直接展示
+const FIXED_OPENING = '说说你想建立的目标——完成它之后，你的生活里什么会不一样？';
 
 // ============================================================
-// 新建目标对话 — 卡片弹出流程：
-//   1. AI 标 [READY] 或 ≥6 条消息 → "生成目标"按钮出现
-//   2. 用户点击 → handleSynthesize() → synthesizeGoal() 调 AI 生成 JSON
-//   3. 解析 JSON 创建 Goal 对象 → 显示目标卡片
-//   4. 用户确认 → addExtraGoal() 写入目标库 → router.back()
+// 新建目标 — 卡片由 AI 的 ---INTERFACE--- action 驱动（见 services/cards.ts）
+//   generate_plan / skip_to_plan → 弹出目标入库卡片
+//   generate_cause_cards → 弹出真因卡片
+//   render_cause_tree → 弹出原因层级图
 // ============================================================
 export default function AddGoalScreen() {
   const router = useRouter();
-  const { accent, addExtraGoal, extraGoals, goals } = useApp();
+  const { accent, addExtraGoal, extraGoals, goals, userProfile } = useApp();
   const ac = accent;
   const insets = useSafeAreaInsets();
 
-  const [msgs, setMsgs] = useState<Msg[]>([]);
-  const [phase, setPhase] = useState('start');
+  const systemPrompt = buildAddGoalPrompt(userProfile);
+
+  const [msgs, setMsgs] = useState<Msg[]>([
+    { role: 'ai', text: FIXED_OPENING, action: { action: 'none' } },
+  ]);
+  const [phase, setPhase] = useState<'waiting' | 'thinking' | 'typing' | 'synthesizing' | 'done'>('waiting');
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
-  const [ready, setReady] = useState(false);
   const [newGoal, setNewGoal] = useState<Goal | null>(null);
+  const [planPhases, setPlanPhases] = useState<PlanPhase[]>([]);
+  const [cardExpanded, setCardExpanded] = useState(false);
   const [cardVis, setCardVis] = useState(false);
   const [kbHeight, setKbHeight] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
-    const show = Keyboard.addListener('keyboardWillShow', (e) => {
+    // iOS: willShow/willHide 提供与键盘动画同步的平滑体验
+    // Android: 仅支持 didShow/didHide
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvent, (e) => {
       setKbHeight(e.endCoordinates.height);
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
     });
-    const hide = Keyboard.addListener('keyboardWillHide', () => setKbHeight(0));
+    const hide = Keyboard.addListener(hideEvent, () => setKbHeight(0));
     return () => { show.remove(); hide.remove(); };
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      setPhase('thinking');
-      try {
-        const text = await sendChatMessage([], systemPrompt);
-        setMsgs([{ role: 'ai', text }]);
-        setPhase('typing');
-      } catch (e: any) {
-        setError(e.message || '连接失败');
-        setPhase('waiting');
-      }
-    })();
   }, []);
 
   useEffect(() => {
@@ -80,18 +74,16 @@ export default function AddGoalScreen() {
       content: m.text,
     }));
 
-  // 卡片触发条件：AI 标记检测 → 见 services/cards.ts goal-synthesis.trigger
-  const checkReady = (text: string) => detectMarker(text, READY_MARKER);
-
+  // 解析 AI 回复中的界面指令，判断是否弹出卡片
   const handleAIDone = () => {
-    // Check if last AI message has [READY]
     const lastMsg = msgs[msgs.length - 1];
-    if (lastMsg && lastMsg.role === 'ai' && checkReady(lastMsg.text)) {
-      setReady(true);
-      // Strip [READY] from displayed text
-      setMsgs(prev => prev.map((m, i) =>
-        i === prev.length - 1 ? { ...m, text: m.text.replace('[READY]', '').trim() } : m,
-      ));
+    if (lastMsg && lastMsg.role === 'ai' && lastMsg.action) {
+      const act = lastMsg.action.action;
+      // generate_plan / skip_to_plan → 自动触发目标合成
+      if (act === 'generate_plan' || act === 'skip_to_plan') {
+        handleSynthesize();
+        return;
+      }
     }
     setPhase(newGoal ? 'done' : 'waiting');
   };
@@ -106,10 +98,10 @@ export default function AddGoalScreen() {
     setError('');
 
     try {
-      const text = await sendChatMessage(buildApiMessages(newMsgs), systemPrompt);
-      const cleanText = checkReady(text) ? text.replace('[READY]', '').trim() : text;
-      setMsgs(prev => [...prev, { role: 'ai', text: cleanText }]);
-      if (checkReady(text)) setReady(true);
+      const raw = await sendChatMessage(buildApiMessages(newMsgs), systemPrompt);
+      const parsed = parseAIResponse(raw);
+      // 只展示对话文本，界面指令存在 action 字段中
+      setMsgs(prev => [...prev, { role: 'ai', text: parsed.text, action: parsed.action }]);
       setPhase('typing');
     } catch (e: any) {
       setError(e.message || '连接失败');
@@ -135,11 +127,43 @@ export default function AddGoalScreen() {
       const usedPals = [...goals, ...extraGoals].map(g => g.pal);
       const pal = [0, 1, 2, 3].find(p => !usedPals.includes(p)) ?? 0;
 
+      // AI 未返回 phases 时用最小 fallback，确保详情页不落空
+      const phases = (result.phases && result.phases.length > 0) ? result.phases : [
+        {
+          id: 'phase_fb_0',
+          label: '第一阶段：开始行动',
+          time_range: '第1-2周',
+          tasks: [
+            { id: 'fb_t0', text: `每天为「${result.name}」做一件小事`, granularity: 'day' as const },
+            { id: 'fb_t1', text: '记录每次行动的感受', granularity: 'day' as const },
+            { id: 'fb_t2', text: '周末花5分钟回顾本周进展', granularity: 'week' as const },
+          ],
+        },
+        {
+          id: 'phase_fb_1',
+          label: '第二阶段：建立节奏',
+          time_range: '第3-4周',
+          tasks: [
+            { id: 'fb_t3', text: '增加行动的频率或时长', granularity: 'week' as const },
+            { id: 'fb_t4', text: '找到最适合自己的执行时间', granularity: 'week' as const },
+          ],
+        },
+      ];
+
       const goal: Goal = {
         id: newId,
         name: result.name,
         phase: result.phase,
         summary: result.summary,
+        insight: result.insight,
+        planSteps: (result.planSteps || []).map((s, i) => ({
+          id: `step_${newId}_${i}`,
+          label: s.label,
+          desc: s.desc,
+          done: false,
+        })),
+        phases,
+        createdAt: Date.now(),
         progress: 0,
         pal,
         cx: '0%',
@@ -147,6 +171,8 @@ export default function AddGoalScreen() {
         sz: 100,
       };
       setNewGoal(goal);
+      setPlanPhases(phases);
+      setCardExpanded(false);
       setPhase('done');
       setTimeout(() => setCardVis(true), 60);
     } catch (e: any) {
@@ -254,7 +280,7 @@ export default function AddGoalScreen() {
           </View>
         ) : null}
 
-        {/* Goal card */}
+        {/* Goal card — expandable with execution plan */}
         {newGoal && phase === 'done' && (
           <View style={{ opacity: cardVis ? 1 : 0 }}>
             <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 9, color: ac, letterSpacing: 1, marginBottom: 14 }}>
@@ -262,17 +288,12 @@ export default function AddGoalScreen() {
             </Text>
 
             <View style={{ backgroundColor: TH2.bg1, borderRadius: 16, borderWidth: 1, borderColor: TH2.bdr, padding: 20, position: 'relative', overflow: 'hidden' }}>
-              <Text
-                style={{
-                  position: 'absolute', top: -10, left: 10,
-                  fontFamily: 'Lora_500Medium', fontSize: 80,
-                  color: TH2.t2, opacity: 0.07,
-                }}
-              >
+              <Text style={{ position: 'absolute', top: -10, left: 10, fontFamily: 'Lora_500Medium', fontSize: 80, color: TH2.t2, opacity: 0.07 }}>
                 {'"'}
               </Text>
 
-              <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center', marginBottom: 16 }}>
+              {/* 头部：星球 + 名称 + 阶段 */}
+              <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center', marginBottom: 14 }}>
                 <PlanetOrb goal={{ id: 99, progress: 0, pal: newGoal.pal }} size={52} />
                 <View>
                   <Text style={{ fontFamily: 'Lora_500Medium', fontSize: 20, color: TH2.t0, marginBottom: 3 }}>
@@ -284,23 +305,102 @@ export default function AddGoalScreen() {
                 </View>
               </View>
 
-              <View style={{ borderTopWidth: 1, borderTopColor: TH2.bdr, paddingTop: 14 }}>
-                <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 8, color: TH2.t2, letterSpacing: 1, marginBottom: 6 }}>
-                  如实理解
-                </Text>
+              {/* 总结 */}
+              <View style={{ borderTopWidth: 1, borderTopColor: TH2.bdr, paddingTop: 12, marginBottom: 14 }}>
                 <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 13, color: TH2.t0, lineHeight: 21 }}>
                   {newGoal.summary || '正在梳理中……'}
                 </Text>
               </View>
+
+              {/* 执行计划（可展开） */}
+              {planPhases.length > 0 && (
+                <View>
+                  <Pressable
+                    onPress={() => setCardExpanded(e => !e)}
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderTopWidth: 1, borderTopColor: TH2.bdr }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 9, color: ac, letterSpacing: 1 }}>
+                        执行计划
+                      </Text>
+                      <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 10, color: TH2.t2 }}>
+                        {planPhases.length} 个阶段 · {planPhases.reduce((sum, p) => sum + p.tasks.length, 0)} 个动作
+                      </Text>
+                    </View>
+                    <Svg width={10} height={6} viewBox="0 0 10 6" fill="none" style={{ transform: [{ rotate: cardExpanded ? '180deg' : '0deg' }] }}>
+                      <Path d="M1 1l4 4 4-4" stroke={TH2.t2} strokeWidth={1.5} strokeLinecap="round" />
+                    </Svg>
+                  </Pressable>
+
+                  {cardExpanded && (
+                    <View style={{ gap: 14, paddingTop: 12 }}>
+                      {planPhases.map((phase, pi) => (
+                        <View key={phase.id || pi}>
+                          {/* 阶段标题 */}
+                          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+                            <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 14, color: TH2.t0 }}>
+                              {phase.label}
+                            </Text>
+                            <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 9, color: TH2.t2 }}>
+                              {phase.time_range}
+                            </Text>
+                          </View>
+
+                          {/* 任务列表 */}
+                          <View style={{ gap: 6 }}>
+                            {phase.tasks.map((task, ti) => (
+                              <View key={task.id || ti} style={{
+                                flexDirection: 'row', gap: 10, paddingLeft: 4,
+                                paddingVertical: 8, paddingRight: 8,
+                                borderLeftWidth: 2,
+                                borderLeftColor: task.linked_cause ? ac : TH2.bdr,
+                              }}>
+                                {/* 粒度标签 */}
+                                <View style={{
+                                  paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
+                                  backgroundColor: task.granularity === 'day' ? 'rgba(107,158,120,0.15)' :
+                                                   task.granularity === 'week' ? 'rgba(196,120,58,0.12)' :
+                                                   'rgba(138,132,128,0.10)',
+                                  alignSelf: 'flex-start', marginTop: 1,
+                                }}>
+                                  <Text style={{
+                                    fontFamily: 'DMMono_400Regular', fontSize: 8,
+                                    color: task.granularity === 'day' ? TH2.success :
+                                           task.granularity === 'week' ? ac : TH2.t2,
+                                  }}>
+                                    {task.granularity === 'day' ? '每天' : task.granularity === 'week' ? '每周' : '每月'}
+                                  </Text>
+                                </View>
+
+                                {/* 任务内容 */}
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 13, color: TH2.t1, lineHeight: 20 }}>
+                                    {task.text}
+                                  </Text>
+                                  {task.linked_cause ? (
+                                    <Text style={{ fontFamily: 'Lora_500Medium_Italic', fontSize: 10, color: ac, marginTop: 2, opacity: 0.8 }}>
+                                      针对：{task.linked_cause}
+                                    </Text>
+                                  ) : null}
+                                </View>
+                              </View>
+                            ))}
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              )}
             </View>
 
             {/* Actions */}
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
               <Pressable
-                onPress={() => { setNewGoal(null); setPhase('waiting'); setCardVis(false); }}
+                onPress={() => { setNewGoal(null); setPlanPhases([]); setPhase('waiting'); setCardVis(false); }}
                 style={{ flex: 1, height: 44, borderRadius: 12, backgroundColor: 'transparent', borderWidth: 1, borderColor: TH2.bdr, alignItems: 'center', justifyContent: 'center' }}
               >
-                <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 13, color: TH2.t1 }}>重新描述</Text>
+                <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 13, color: TH2.t1 }}>继续对话修改</Text>
               </Pressable>
               <Pressable
                 onPress={handleConfirm}
@@ -349,15 +449,6 @@ export default function AddGoalScreen() {
           </Pressable>
         </View>
 
-        {/* Synthesize button */}
-        {(ready || msgs.length >= MIN_EXCHANGES * 2) && !newGoal && (
-          <Pressable
-            onPress={handleSynthesize}
-            style={{ marginTop: 10, height: 38, borderRadius: 10, backgroundColor: ac, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Text style={{ fontFamily: 'DMSans_500Medium', fontSize: 13, color: '#fff' }}>生成目标</Text>
-          </Pressable>
-        )}
       </View>
     </View>
   );

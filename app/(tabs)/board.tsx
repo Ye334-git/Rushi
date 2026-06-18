@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, Pressable, Alert, LayoutChangeEvent, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -11,7 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { TH2 } from '../../constants/Colors';
 import { PlanetOrb } from '../../components/PlanetOrb';
-import { useApp, GOALS2, POSITION_SLOTS } from '../../contexts/AppContext';
+import { useApp, POSITION_SLOTS } from '../../contexts/AppContext';
 import type { Goal } from '../../types/models';
 
 const TAB_BAR_H = 70;
@@ -113,7 +113,6 @@ export default function BoardScreen() {
   const today = new Date();
   const dayStr = ['日', '一', '二', '三', '四', '五', '六'][today.getDay()];
 
-  const defaultIds = useRef(new Set(GOALS2.map(g => g.id)));
   const [editMode, setEditMode] = useState(false);
   const [containerW, setContainerW] = useState(393);
   const [containerH, setContainerH] = useState(600);
@@ -166,13 +165,12 @@ export default function BoardScreen() {
           </Text>
           <Text style={{ fontFamily: 'Lora_600SemiBold', fontSize: 22, color: TH2.t0 }}>如实</Text>
         </View>
-        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: TH2.bg1, borderWidth: 1, borderColor: TH2.bdr, alignItems: 'center', justifyContent: 'center' }}>
-          <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
-            <Circle cx={7} cy={7} r={5.5} stroke={TH2.t2} strokeWidth={1.3} />
-            <Line x1={7} y1={4.5} x2={7} y2={8} stroke={TH2.t2} strokeWidth={1.3} strokeLinecap="round" />
-            <Circle cx={7} cy={9.75} r={0.5} fill={TH2.t2} />
-          </Svg>
-        </View>
+        <Pressable
+          onPress={() => router.push('/onboarding?rewrite=1')}
+          style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: TH2.bdr }}
+        >
+          <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 11, color: TH2.t2 }}>重写问卷</Text>
+        </Pressable>
       </View>
 
       {/* Star field — animated planets */}
@@ -213,7 +211,6 @@ export default function BoardScreen() {
 
         {/* Animated planets */}
         {allGoals.map((g, idx) => {
-          const isDefault = defaultIds.current.has(g.id);
           const px = toPx(g.cx) * containerW;
           const py = toPx(g.cy) * containerH;
           return (
@@ -231,16 +228,9 @@ export default function BoardScreen() {
                   }}
                 />
                 <View style={{ alignItems: 'center' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 11, color: TH2.t1, letterSpacing: 0.2 }}>
-                      {g.name}
-                    </Text>
-                    {isDefault && (
-                      <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 9, color: TH2.t2, opacity: 0.6 }}>
-                        示例
-                      </Text>
-                    )}
-                  </View>
+                  <Text style={{ fontFamily: 'DMSans_400Regular', fontSize: 11, color: TH2.t1, letterSpacing: 0.2 }}>
+                    {g.name}
+                  </Text>
                   <Text style={{ fontFamily: 'DMMono_400Regular', fontSize: 9, color: g.isNew ? TH2.acc : TH2.t2, marginTop: 1 }}>
                     {g.isNew ? '新建中' : `${g.progress}%`}
                   </Text>
